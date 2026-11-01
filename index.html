@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PDF Reader</title>
+<meta name="description" content="PDF reader and editor that works fully offline">
+<meta name="theme-color" content="#f6f7fb">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PDF Reader">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob: data:; worker-src 'self' blob:; frame-src blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<!-- Splash: the icon only, no square or frame -->
+<div id="boot"><img src="icons/logo-splash.png" alt="" width="96" height="96"></div>
+<div id="app"></div>
+
+<!-- Service worker registration is written explicitly here in the HTML (PWABuilder looks for it in the page) -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js', { scope: './' })
+      .then(function (reg) { console.log('Service Worker registered, scope:', reg.scope); })
+      .catch(function (err) { console.error('Service Worker registration failed:', err); });
+  });
+}
+</script>
+
+<script src="lib/pdf.min.js"></script>
+<script src="lib/pdf-lib.min.js"></script>
+<script src="lib/mammoth.browser.min.js"></script>
+<script src="lib/xlsx.full.min.js"></script>
+<script src="lib/jszip.min.js"></script>
+<script src="lib/docx.iife.js"></script>
+<script src="js/core.js"></script>
+<script src="js/library.js"></script>
+<script src="js/viewer.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/pages.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
