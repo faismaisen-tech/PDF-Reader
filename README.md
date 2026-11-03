@@ -22,3 +22,6 @@ The version is a single number in `js/core.js` (`A.VERSION`). It is **1** now an
 
 ## Device folders
 Files > Device (or the + button) links folders/files on the phone or computer without uploading. Chrome blocks the Downloads folder itself - link a sub-folder such as Download/Telegram. Android may ask for permission again each session.
+
+## Text recognition (OCR)
+Scanned books and garbled Arabic are read with the bundled offline OCR (lib/ocr). Optionally, Settings > AI text recognition lets you save your own Gemini or Claude API key for better results; only then are page images sent to that provider.

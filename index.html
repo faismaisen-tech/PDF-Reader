@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PDF Reader">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob: data:; worker-src 'self' blob:; frame-src blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob: data: https://generativelanguage.googleapis.com https://api.anthropic.com; worker-src 'self' blob:; frame-src blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -37,11 +37,13 @@ if ('serviceWorker' in navigator) {
 <script src="lib/xlsx.full.min.js"></script>
 <script src="lib/jszip.min.js"></script>
 <script src="lib/docx.iife.js"></script>
+<script src="lib/ocr/tesseract.min.js"></script>
 <script src="js/core.js"></script>
 <script src="js/library.js"></script>
 <script src="js/viewer.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/pages.js"></script>
+<script src="js/ocr.js"></script>
 <script src="js/tools.js"></script>
 <script src="js/main.js"></script>
 </body>

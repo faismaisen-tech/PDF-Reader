@@ -1,8 +1,9 @@
 /* Service Worker: كل شيء يتخزّن عند أول تشغيل ثم يعمل التطبيق بدون إنترنت إطلاقاً.
    لا تعدّل القائمة يدوياً: شغّل  node build.js  بعد أي تغيير في الملفات. */
-const VERSION = 'v77dc557ea8';
+const VERSION = 'v6146dd269e';
 const CACHE = 'pdfreader-' + VERSION;
 const SHARE = 'pdfreader-share';
+const AI_HOSTS = ['generativelanguage.googleapis.com', 'api.anthropic.com'];
 const PRECACHE = [/*LIST_START*/
   './',
   "./css/app.css",
@@ -18,6 +19,7 @@ const PRECACHE = [/*LIST_START*/
   "./js/editor.js",
   "./js/library.js",
   "./js/main.js",
+  "./js/ocr.js",
   "./js/pages.js",
   "./js/tools.js",
   "./js/viewer.js",
@@ -193,6 +195,12 @@ const PRECACHE = [/*LIST_START*/
   "./lib/docx.iife.js",
   "./lib/jszip.min.js",
   "./lib/mammoth.browser.min.js",
+  "./lib/ocr/lang/ara.traineddata.gz",
+  "./lib/ocr/lang/eng.traineddata.gz",
+  "./lib/ocr/tesseract-core-lstm.wasm.js",
+  "./lib/ocr/tesseract-core-simd-lstm.wasm.js",
+  "./lib/ocr/tesseract.min.js",
+  "./lib/ocr/worker.min.js",
   "./lib/pdf-lib.min.js",
   "./lib/pdf.min.js",
   "./lib/pdf.worker.min.js",
@@ -231,7 +239,11 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
-  if (url.origin !== location.origin) { e.respondWith(new Response('', { status: 204 })); return; } // لا اتصال بأي موقع خارجي
+  if (url.origin !== location.origin) {
+    // No internet by default. The ONLY exception: the optional AI text recognition, when the user saved an API key.
+    if (AI_HOSTS.includes(url.hostname)) { e.respondWith(fetch(req)); return; }
+    e.respondWith(new Response('', { status: 204 })); return;
+  }
   if (req.method === 'POST' && url.pathname.endsWith('/share-target')) { e.respondWith(handleShare(req)); return; }
   if (req.method !== 'GET') return;
   e.respondWith(

@@ -19,12 +19,21 @@ const drawText = (ctx, a, ox, oy) => {
 };
 const loadImg = (k, cb) => { if (A.imgs[k]) return A.imgs[k]; const im = new Image(); im.onload = cb; im.src = A.imgData[k]; A.imgs[k] = im; return im; };
 
+const smoothPath = (ctx, pts) => {
+  ctx.beginPath(); if (pts.length < 3) { pts.forEach((p, n) => (n ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); return; }
+  ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length - 1; i++) ctx.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2); const l = pts[pts.length - 1]; ctx.lineTo(l[0], l[1]);
+};
+const smoothSample = (pts) => {
+  if (pts.length < 3) return pts; const out = [pts[0]]; let s = pts[0];
+  for (let i = 1; i < pts.length - 1; i++) { const c = pts[i], e = [(pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2]; for (let k = 1; k <= 6; k++) { const t = k / 6, u = 1 - t; out.push([u * u * s[0] + 2 * u * t * c[0] + t * t * e[0], u * u * s[1] + 2 * u * t * c[1] + t * t * e[1]]); } s = e; }
+  out.push(pts[pts.length - 1]); return out;
+};
 A.edDraw = (V, i, ctx) => {
   const one = (a) => {
     if (a.t === 'cover') { ctx.fillStyle = a.c; a.rects.forEach((r) => ctx.fillRect(r[0], r[1], r[2], r[3])); }
     else if (a.t === 'hl') { ctx.fillStyle = a.c; ctx.globalAlpha = 0.45; a.rects.forEach((r) => ctx.fillRect(r[0], r[1], r[2], r[3])); ctx.globalAlpha = 1; }
-    else if (a.t === 'ul') { ctx.strokeStyle = a.c; ctx.lineWidth = a.w; ctx.lineCap = 'round'; a.rects.forEach((r) => { const y = r[1] + r[3] * 0.94; ctx.beginPath(); ctx.moveTo(r[0], y); ctx.lineTo(r[0] + r[2], y); ctx.stroke(); }); }
-    else if (a.t === 'ink') { ctx.strokeStyle = a.c; ctx.lineWidth = a.w; ctx.lineCap = ctx.lineJoin = 'round'; ctx.beginPath(); a.pts.forEach((p, n) => (n ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); if (a.pts.length === 1) ctx.lineTo(a.pts[0][0] + 0.1, a.pts[0][1]); ctx.stroke(); }
+    else if (a.t === 'ln') { ctx.strokeStyle = a.c; ctx.lineWidth = a.w; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(a.x1, a.y1); ctx.lineTo(a.x2, a.y2); ctx.stroke(); }
+    else if (a.t === 'ink') { ctx.strokeStyle = a.c; ctx.lineWidth = a.w; ctx.lineCap = ctx.lineJoin = 'round'; smoothPath(ctx, a.pts); if (a.pts.length === 1) ctx.lineTo(a.pts[0][0] + 0.1, a.pts[0][1]); ctx.stroke(); }
     else if (a.t === 'tx') drawText(ctx, a, a.x, a.y);
     else if (a.t === 'img') { const im = loadImg(a.k, () => V.redraw(a.p)); if (im.complete && im.naturalWidth) ctx.drawImage(im, a.x, a.y, a.w, a.h); }
   };
@@ -36,7 +45,7 @@ A.edDraw = (V, i, ctx) => {
 };
 
 /* ---------- enter / leave edit mode ---------- */
-const ED_TOOLS = [['hand', 'hand', 'Scroll'], ['hl', 'hl', 'Highlight'], ['ul', 'ul', 'Underline'], ['ink', 'pen', 'Draw'], ['tx', 'type', 'Text'], ['edtx', 'edit', 'Edit text'], ['sig', 'sign', 'Signature'], ['img', 'image', 'Image'], ['er', 'eraser', 'Eraser']];
+const ED_TOOLS = [['hand', 'hand', 'Scroll'], ['hl', 'hl', 'Highlight'], ['ln', 'line', 'Line'], ['ink', 'pen', 'Draw'], ['tx', 'type', 'Text'], ['edtx', 'edit', 'Edit text'], ['sig', 'sign', 'Signature'], ['img', 'image', 'Image'], ['er', 'eraser', 'Eraser']];
 A.edToggle = async (V, act) => {
   if (act === 'save') return A.edSave(V);
   if (V.protectedDoc) return A.toast('Remove the file protection first (Tools → Remove protection)');
@@ -47,7 +56,7 @@ A.edToggle = async (V, act) => {
     hud.hidden = true; $('.vbot', el).hidden = false; $('[data-v=save]', el).hidden = true; $('[data-v=search]', el).hidden = false; $('[data-v=more]', el).hidden = false; V.redraw(); return;
   }
   V.edit = true; V.tool = 'hand'; V.undo = []; V.redo = []; V.ann = {}; V.sel = null;
-  V.colors = V.colors || { hl: PAL[0], ul: PAL[2], ink: PAL[6] }; V.sizes = V.sizes || { hl: 100, ul: 1.6, ink: 3 };
+  V.colors = V.colors || { hl: PAL[0], ln: PAL[2], ink: PAL[6] }; V.sizes = V.sizes || { ln: 2, ink: 3 };
   el.classList.remove('hide'); el.classList.add('editing'); $('.vbot', el).hidden = true; hud.hidden = false; $('.vsearch', el).hidden = true;
   $('[data-v=save]', el).hidden = false; $('[data-v=search]', el).hidden = true; $('[data-v=more]', el).hidden = true;
   hud.innerHTML = `<div class="opts" id="eopts"></div><div class="tools">${ED_TOOLS.map(([k, i, t]) => `<button data-t="${k}">${A.ic(i)}${t}</button>`).join('')}<button data-t="_undo">${A.ic('undo')}Undo</button><button data-t="_redo">${A.ic('redo')}Redo</button><button data-t="_close">${A.ic('x')}Close</button></div>`;
@@ -60,12 +69,12 @@ const snapshot = (V) => { V.undo.push(JSON.stringify(V.ann)); if (V.undo.length 
 const restore = (V, s) => { V.ann = JSON.parse(s); V.sel = null; $('.selbar', V.el).hidden = true; V.dirty = true; V.redraw(); edTool(V, V.tool, true); };
 
 function edOpts(V) {
-  const g = ['hl', 'ul', 'ink'].includes(V.tool) ? V.tool : null; const o = $('#eopts', V.el);
-  if (!g) { o.innerHTML = `<small>${{ hand: 'Tap text, signatures or images to edit them', tx: 'Tap the page to add text', edtx: 'Tap an existing line of text to change it', sig: 'Tap where the signature should go', er: 'Tap near anything to erase it' }[V.tool] || ''}</small>`; return; }
-  const cfg = { hl: ['Size', 40, 220, 5], ul: ['Thickness', 0.6, 5, 0.2], ink: ['Size', 1, 24, 0.5] }[g];
-  o.innerHTML = PAL.map((c) => `<button class="clr ${V.colors[g] === c ? 'on' : ''}" style="background:${c}" data-c="${c}" data-g="${g}"></button>`).join('') + `<small>${cfg[0]}</small><input type="range" data-sz="${g}" min="${cfg[1]}" max="${cfg[2]}" step="${cfg[3]}" value="${V.sizes[g]}">`;
+  const g = ['hl', 'ln', 'ink'].includes(V.tool) ? V.tool : null; const o = $('#eopts', V.el);
+  if (!g) { o.innerHTML = `<small>${{ hand: 'Tap text, signatures or images to edit them', tx: 'Tap the page to add text', edtx: 'Tap an existing line of text to change it', ln: '', sig: 'Tap where the signature should go', er: 'Tap near anything to erase it' }[V.tool] || ''}</small>`; return; }
+  const cfg = { ln: ['Thickness', 0.6, 8, 0.2], ink: ['Size', 1, 24, 0.5] }[g];
+  o.innerHTML = PAL.map((c) => `<button class="clr ${V.colors[g] === c ? 'on' : ''}" style="background:${c}" data-c="${c}" data-g="${g}"></button>`).join('') + (cfg ? `<small>${cfg[0]}</small><input type="range" data-sz="${g}" min="${cfg[1]}" max="${cfg[2]}" step="${cfg[3]}" value="${V.sizes[g]}">` : '<small>Drag over text</small>');
 }
-function setClass(V) { V.sc.classList.remove('edit-draw', 'edit-tap'); V.sc.classList.add(V.sel || ['hl', 'ul', 'ink'].includes(V.tool) ? 'edit-draw' : 'edit-tap'); }
+function setClass(V) { V.sc.classList.remove('edit-draw', 'edit-tap'); V.sc.classList.add(V.sel || ['hl', 'ln', 'ink'].includes(V.tool) ? 'edit-draw' : 'edit-tap'); }
 function edTool(V, t, keep) {
   if (t === '_undo') { if (V.undo.length) { V.redo.push(JSON.stringify(V.ann)); restore(V, V.undo.pop()); } return; }
   if (t === '_redo') { if (V.redo.length) { V.undo.push(JSON.stringify(V.ann)); restore(V, V.redo.pop()); } return; }
@@ -86,7 +95,7 @@ A.edSel = async (V, act) => {
 /* ---------- hit testing ---------- */
 const dRect = (x, y, r) => Math.hypot(Math.max(r[0] - x, 0, x - (r[0] + r[2])), Math.max(r[1] - y, 0, y - (r[1] + r[3])));
 const dSeg = (x, y, p, q) => { const vx = q[0] - p[0], vy = q[1] - p[1], l = vx * vx + vy * vy; const t = l ? clamp(((x - p[0]) * vx + (y - p[1]) * vy) / l, 0, 1) : 0; return Math.hypot(x - (p[0] + t * vx), y - (p[1] + t * vy)); };
-const distAnn = (a, x, y) => (a.t === 'tx' || a.t === 'img' ? dRect(x, y, [a.x, a.y, a.w, a.h]) : a.t === 'ink' ? Math.max(0, Math.min(...a.pts.map((p, i) => (i ? dSeg(x, y, a.pts[i - 1], p) : Math.hypot(x - p[0], y - p[1])))) - a.w / 2) : Math.min(...a.rects.map((r) => dRect(x, y, r))));
+const distAnn = (a, x, y) => (a.t === 'ln' ? Math.max(0, dSeg(x, y, [a.x1, a.y1], [a.x2, a.y2]) - a.w / 2) : a.t === 'tx' || a.t === 'img' ? dRect(x, y, [a.x, a.y, a.w, a.h]) : a.t === 'ink' ? Math.max(0, Math.min(...a.pts.map((p, i) => (i ? dSeg(x, y, a.pts[i - 1], p) : Math.hypot(x - p[0], y - p[1])))) - a.w / 2) : Math.min(...a.rects.map((r) => dRect(x, y, r))));
 const snapRects = (items, b, kind, scale) => {
   let rs = [];
   for (const it of items) { if (!it.hz) continue; const ov = Math.min(it.y + it.h, b.b) - Math.max(it.y, b.t); if (ov < it.h * 0.35) continue; const xl = Math.max(it.x, b.l), xr = Math.min(it.x + it.w, b.r); if (xr - xl < 2) continue; rs.push([xl, it.y, xr - xl, it.h]); }
@@ -115,21 +124,24 @@ function bindPointers(V) {
       else if (s.p === i && distAnn(s, x, y) <= 6 / V.s) D = { ...base, k: 'move', o: { x: s.x, y: s.y } };
       else { const m = movableAt(i, x, y); if (m) { select(V, m); D = { ...base, k: 'move', o: { x: m.x, y: m.y } }; } else { deselect(V); return; } }
     } else if (['hand', 'tx', 'sig', 'edtx'].includes(t) && movableAt(i, x, y)) { const m = movableAt(i, x, y); select(V, m); D = { ...base, k: 'move', o: { x: m.x, y: m.y } }; }
-    else if (['hl', 'ul'].includes(t)) { D = { ...base, k: 'sel' }; await V.text(i); }
+    else if (t === 'hl') { D = { ...base, k: 'sel' }; await V.text(i); }
+    else if (t === 'ln') { D = { ...base, k: 'line' }; V.prev = { t: 'ln', p: i, x1: x, y1: y, x2: x, y2: y, c: V.colors.ln, w: V.sizes.ln }; }
     else if (t === 'ink') { D = { ...base, k: 'ink', pts: [[x, y]] }; V.prev = { t: 'ink', p: i, pts: D.pts, c: V.colors.ink, w: V.sizes.ink }; }
     else if (t === 'hand') return; else D = { ...base, k: 'tap' };
     try { c.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
   });
   V.vp.addEventListener('pointermove', (e) => {
     if (!D || e.pointerId !== D.id) return; const [x, y] = pt(e, D.pg); if (Math.hypot(e.clientX - D.sx, e.clientY - D.sy) > 8) D.moved = true;
-    if (D.k === 'sel') { const b = { l: Math.min(D.x0, x), r: Math.max(D.x0, x), t: Math.min(D.y0, y), b: Math.max(D.y0, y) }; V.prev = { t: V.tool, p: D.i, rects: snapRects(V.texts[D.i] || [], b, V.tool, V.sizes.hl / 100), c: V.colors[V.tool], w: V.sizes.ul }; V.redraw(D.i); }
-    else if (D.k === 'ink') { D.pts.push([x, y]); V.redraw(D.i); }
+    if (D.k === 'sel') { const b = { l: Math.min(D.x0, x), r: Math.max(D.x0, x), t: Math.min(D.y0, y), b: Math.max(D.y0, y) }; V.prev = { t: V.tool, p: D.i, rects: snapRects(V.texts[D.i] || [], b, V.tool, 1), c: V.colors[V.tool] }; V.redraw(D.i); }
+    else if (D.k === 'ink') { const l = D.pts[D.pts.length - 1]; if (Math.hypot(x - l[0], y - l[1]) > 0.6) { D.pts.push([x, y]); V.redraw(D.i); } }
+    else if (D.k === 'line') { let x2 = x, y2 = y; if (Math.abs(y - D.y0) < 5) y2 = D.y0; else if (Math.abs(x - D.x0) < 5) x2 = D.x0; Object.assign(V.prev, { x2, y2 }); V.redraw(D.i); }
     else if (D.k === 'move' && V.sel && D.moved) { if (!D.sn) { snapshot(V); D.sn = true; } V.sel.x = D.o.x + (x - D.x0); V.sel.y = D.o.y + (y - D.y0); V.redraw(D.i); }
     else if (D.k === 'resize' && V.sel) { if (!D.sn) { snapshot(V); D.sn = true; } const s = V.sel, w = Math.max(16, x - s.x); if (s.t === 'img') { s.w = w; s.h = w * (D.o.h / D.o.w); } else { s.size = clamp(D.o.size * (w / D.o.w), 6, 200); fitText(s); } V.redraw(D.i); }
   });
   const up = async (e) => {
     if (!D || e.pointerId !== D.id) return; const d = D; D = null; const [x, y] = pt(e, d.pg), i = d.i, t = V.tool; const list = () => (V.ann[i] = V.ann[i] || []);
-    if (d.k === 'sel') { const p = V.prev; V.prev = null; if (d.moved && p) { snapshot(V); list().push({ id: nid(), t: p.t, p: i, rects: p.rects, c: p.c, w: p.w }); } V.redraw(i); }
+    if (d.k === 'sel') { const p = V.prev; V.prev = null; if (d.moved && p) { snapshot(V); list().push({ id: nid(), t: p.t, p: i, rects: p.rects, c: p.c }); } V.redraw(i); }
+    else if (d.k === 'line') { const p = V.prev; V.prev = null; if (d.moved && Math.hypot(p.x2 - p.x1, p.y2 - p.y1) > 4) { snapshot(V); list().push({ id: nid(), ...p }); } V.redraw(i); }
     else if (d.k === 'ink') { const p = V.prev; V.prev = null; if (p.pts.length > 1 || !d.moved) { snapshot(V); list().push({ id: nid(), ...p }); } V.redraw(i); }
     else if (d.k === 'move' || d.k === 'resize') V.redraw(i);
     else if (d.k === 'tap' && !d.moved) {
@@ -215,8 +227,8 @@ A.edBuild = async (V) => {
     for (const a of list) {
       if (a.t === 'cover') a.rects.forEach((r) => page.drawRectangle({ ...box(r), color: rgb(1, 1, 1) }));
       else if (a.t === 'hl') a.rects.forEach((r) => page.drawRectangle({ ...box(r), color: col(a.c), opacity: 0.5, blendMode: BlendMode.Multiply }));
-      else if (a.t === 'ul') a.rects.forEach((r) => { const y = r[1] + r[3] * 0.94; page.drawLine({ start: P(r[0], y), end: P(r[0] + r[2], y), thickness: a.w || 1.5, color: col(a.c), lineCap: LineCapStyle.Round }); });
-      else if (a.t === 'ink') { const pts = a.pts.length === 1 ? [a.pts[0], [a.pts[0][0] + 0.1, a.pts[0][1]]] : a.pts; for (let n = 1; n < pts.length; n++) page.drawLine({ start: P(...pts[n - 1]), end: P(...pts[n]), thickness: a.w, color: col(a.c), lineCap: LineCapStyle.Round }); }
+      else if (a.t === 'ln') page.drawLine({ start: P(a.x1, a.y1), end: P(a.x2, a.y2), thickness: a.w, color: col(a.c), lineCap: LineCapStyle.Round });
+      else if (a.t === 'ink') { const pts = a.pts.length === 1 ? [a.pts[0], [a.pts[0][0] + 0.1, a.pts[0][1]]] : smoothSample(a.pts); for (let n = 1; n < pts.length; n++) page.drawLine({ start: P(...pts[n - 1]), end: P(...pts[n]), thickness: a.w, color: col(a.c), lineCap: LineCapStyle.Round }); }
       else if (a.t === 'tx' || a.t === 'img') {
         let d; if (a.t === 'tx') { const k = 4, c = document.createElement('canvas'); c.width = Math.ceil(a.w * k); c.height = Math.ceil(a.h * k); const x = c.getContext('2d'); x.scale(k, k); drawText(x, a, 0, 0); d = c.toDataURL('image/png'); } else d = A.imgData[a.k];
         const img = d.startsWith('data:image/png') ? await doc.embedPng(toBytes(d)) : await doc.embedJpg(toBytes(d)); const o = P(a.x, a.y + a.h);
@@ -228,12 +240,13 @@ A.edBuild = async (V) => {
 };
 A.edSave = async (V) => {
   if (!Object.values(V.ann).some((l) => l.length)) return A.toast('Nothing to save yet');
-  const rec = V.rec; const k = await A.sheet('Save changes', [!rec.enc && { k: 'rep', label: 'Save (replace this file)', icon: 'check' }, { k: 'copy', label: 'Save as a new copy', icon: 'copy' }, { k: 'dl', label: 'Download', icon: 'download' }]); if (!k) return;
+  const rec = V.rec; const k = await A.sheet('Save changes', [{ k: 'copy', label: 'Save as a new copy (original stays untouched)', icon: 'copy' }, !rec.enc && { k: 'rep', label: 'Save into this file (replace)', icon: 'check' }, { k: 'dl', label: 'Download', icon: 'download' }]); if (!k) return;
   const b = A.busy('Saving…');
   try {
     const blob = new Blob([await A.edBuild(V)], { type: 'application/pdf' });
-    if (k === 'dl') A.download(rec.name, blob); else if (k === 'copy') { await A.saveBlob(baseOf(rec.name) + '-edited.pdf', blob); A.toast('Saved as a new copy'); } else { await A.updateBlob(rec, blob); A.toast('Changes saved'); }
-    if (k !== 'dl') { V.ann = {}; V.undo = []; V.redo = []; V.dirty = false; deselect(V, true); if (k === 'rep') { V.rfHtml = null; await V.open(blob, V.cur); } }
+    if (k === 'dl') A.download(rec.name, blob);
+    else if (k === 'copy') { const nr = await A.saveBlob(baseOf(rec.name) + '-edited.pdf', blob, rec.dev ? null : rec.folder); await V.switchTo(nr, blob); A.toast(`Saved as “${nr.name}” — you are now viewing the copy`, 3600); }
+    else { await A.updateBlob(rec, blob); V.ann = {}; V.undo = []; V.redo = []; V.dirty = false; deselect(V, true); V.rfHtml = null; await V.open(blob, V.cur); A.toast('Changes saved'); }
   } catch (e) { console.error(e); A.toast('Saving failed'); }
   b.done();
 };

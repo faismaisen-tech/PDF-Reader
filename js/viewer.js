@@ -64,7 +64,7 @@ A.viewDoc = async (rec, blob) => {
         parts.push(`<div class="doc-html" style="margin-bottom:12px" dir="auto"><b style="color:var(--pri)">Slide ${i + 1}</b>${ps.map((p) => `<p>${esc(p).replace(/&amp;(amp|lt|gt|quot);/g, '&$1;')}</p>`).join('') || '<p style="color:var(--tx2)">No text</p>'}</div>`);
       }
       html = parts.join('') + '<div class="empty" style="padding:10px">Text only is shown for slides</div>';
-    } else if (e === 'txt') {
+    } else if (e === 'txt' || e === 'md') {
       let t = new TextDecoder('utf-8').decode(ab); if (t.includes('\uFFFD')) t = new TextDecoder('windows-1256').decode(ab);
       html = `<div class="doc-html" dir="auto" style="white-space:pre-wrap">${esc(t)}</div>`;
     } else { b.done(); return A.toast(`Old .${e} files can't be previewed — convert to ${e === 'doc' ? 'docx' : 'pptx'} first`); }
@@ -115,7 +115,7 @@ A.viewPdf = async (rec, blob, o = {}) => {
   V.arrange = () => {
     V.vp.innerHTML = ''; let groups;
     if (V.spread && V.N > 1) { groups = [[0]]; for (let i = 1; i < V.N; i += 2) groups.push(i + 1 < V.N ? [i, i + 1] : [i]); } else groups = V.els.map((_, i) => [i]);
-    const nodes = groups.map((g) => { if (!V.spread) return V.els[g[0]]; const s = document.createElement('div'); s.className = 'spread'; (V.rev && g.length > 1 ? [...g].reverse() : g).forEach((i) => s.appendChild(V.els[i])); return s; });
+    V.groups = groups; const nodes = groups.map((g) => { if (!V.spread) return V.els[g[0]]; const s = document.createElement('div'); s.className = 'spread'; (V.rev && g.length > 1 ? [...g].reverse() : g).forEach((i) => s.appendChild(V.els[i])); return s; });
     if (V.rev && V.dir === 'h') nodes.reverse(); nodes.forEach((n) => V.vp.appendChild(n));
     V.sc.classList.toggle('h', V.dir === 'h'); V.sc.classList.toggle('snapx', V.snap && V.dir === 'h'); V.sc.classList.toggle('snapy', V.snap && V.dir === 'v');
   };
@@ -149,6 +149,7 @@ A.viewPdf = async (rec, blob, o = {}) => {
     if (V.dir === 'h') V.sc.scrollTo({ left: t.offsetLeft - (V.sc.clientWidth - t.offsetWidth) / 2, behavior: b });
     else V.sc.scrollTo({ top: V.snap ? t.offsetTop - (V.sc.clientHeight - t.offsetHeight) / 2 : t.offsetTop - 70, behavior: b });
   };
+  V.switchTo = async (newRec, bl, page) => { rec = newRec; V.rec = newRec; $('.ttl', el).textContent = newRec.name; V.ann = {}; V.undo = []; V.redo = []; V.dirty = false; V.sel = null; V.rfHtml = null; await V.open(bl, page || V.cur); };
   V.setZoom = (z, cx = V.sc.clientWidth / 2, cy = V.sc.clientHeight / 2) => {
     z = clamp(z, 0.5, 5); const r = z / V.zoom; if (Math.abs(r - 1) < 0.001) return; const sx = V.sc.scrollLeft + cx, sy = V.sc.scrollTop + cy; V.zoom = z; V.layout();
     V.sc.scrollLeft = sx * r - cx; V.sc.scrollTop = sy * r - cy; V.vis(); const zb = $('.zbar', el); $('input', zb).value = Math.round(z * 100); $('b', zb).textContent = Math.round(z * 100) + '%';
@@ -184,17 +185,23 @@ A.viewPdf = async (rec, blob, o = {}) => {
     }
     return (V.texts[i] = out);
   };
+  const nAr = (x) => x.normalize('NFKC').replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').toLowerCase();
   V.doSearch = async (q) => {
-    q = q.trim().toLowerCase(); V.hits = []; V.hi = -1; const info = $('.vsearch span', el); if (!q) { info.textContent = '0/0'; return V.redraw(); }
-    for (let i = 0; i < V.N && V.hits.length < 600; i++) {
+    const nq = nAr(q.trim()); V.hits = []; V.hi = -1; const info = $('.vsearch span', el); if (!nq) { info.textContent = '0/0'; return V.redraw(); }
+    for (let i = 0; i < V.N && V.hits.length < 800; i++) {
       info.textContent = `… ${i + 1}/${V.N}`;
-      for (const it of await V.text(i)) { if (!it.hz) continue; const s = it.s.toLowerCase(); let idx = s.indexOf(q); while (idx >= 0) { const rt = isRTL(s); const x = it.x + it.w * (rt ? 1 - (idx + q.length) / s.length : idx / s.length); V.hits.push({ p: i, x, y: it.y, w: Math.max((it.w * q.length) / s.length, 4), h: it.h }); idx = s.indexOf(q, idx + q.length); } }
+      for (const it of await V.text(i)) {
+        if (!it.hz) continue; const ns = nAr(it.s), len = ns.length || 1; let found = false, idx = ns.indexOf(nq);
+        while (idx >= 0) { found = true; const x = it.x + it.w * (isRTL(ns) ? 1 - (idx + nq.length) / len : idx / len); V.hits.push({ p: i, x, y: it.y, w: Math.max((it.w * nq.length) / len, 4), h: it.h }); idx = ns.indexOf(nq, idx + nq.length); }
+        if (!found && isRTL(ns)) { /* some PDFs store Arabic in visual (reversed) order */ const rs = [...ns].reverse().join(''); idx = rs.indexOf(nq); while (idx >= 0) { const vi = len - idx - nq.length; V.hits.push({ p: i, x: it.x + (it.w * vi) / len, y: it.y, w: Math.max((it.w * nq.length) / len, 4), h: it.h }); idx = rs.indexOf(nq, idx + nq.length); } }
+      }
     }
-    V.hi = V.hits.length ? 0 : -1; V.showHit();
+    V.hi = V.hits.length ? 0 : -1; if (!V.hits.length) A.toast('No results'); V.showHit();
   };
+  V.endSearch = () => { $('.vsearch', el).hidden = true; V.hits = []; V.hi = -1; V.redraw(); };
   V.showHit = () => {
     const h = V.hits[V.hi]; $('.vsearch span', el).textContent = `${V.hits.length ? V.hi + 1 : 0}/${V.hits.length}`; if (!h) return V.redraw(); const pg = V.els[h.p], t = pg.parentElement.classList.contains('spread') ? pg.parentElement : pg;
-    if (V.dir === 'h') V.sc.scrollTo({ left: t.offsetLeft - (V.sc.clientWidth - t.offsetWidth) / 2, behavior: 'smooth' }); else V.sc.scrollTo({ top: pg.offsetTop + h.y * V.s - V.sc.clientHeight / 3, behavior: 'smooth' });
+    if (V.dir === 'h') V.sc.scrollTo({ left: t.offsetLeft - (V.sc.clientWidth - t.offsetWidth) / 2, behavior: 'smooth' }); else V.sc.scrollTo({ top: t.offsetTop + h.y * V.s - V.sc.clientHeight / 3, behavior: 'smooth' });
     setTimeout(() => V.redraw(), 350); V.redraw();
   };
 
@@ -210,16 +217,31 @@ A.viewPdf = async (rec, blob, o = {}) => {
   };
 
   /* --- menus --- */
-  V.bmToggle = async () => { rec.bm = rec.bm || []; const i = rec.bm.indexOf(V.cur); if (i >= 0) rec.bm.splice(i, 1); else rec.bm.push(V.cur); rec.bm.sort((a, b) => a - b); await A.persist(rec); A.toast(i >= 0 ? 'Bookmark removed' : `Bookmarked page ${V.cur}`); };
+  V.bms = () => { rec.bm = (rec.bm || []).map((b) => (typeof b === 'number' ? { p: b, name: '' } : b)); return rec.bm; };
+  V.bmToggle = async () => {
+    const l = V.bms(), i = l.findIndex((b) => b.p === V.cur); if (i >= 0) { l.splice(i, 1); await A.persist(rec); return A.toast('Bookmark removed'); }
+    const n = await A.prompt(`Name this bookmark (page ${V.cur} is added automatically)`, '', { ph: 'Optional name, e.g. Chapter 2', ok: 'Add' }); if (n === null) return;
+    l.push({ p: V.cur, name: n.trim() }); l.sort((a, b) => a.p - b.p); await A.persist(rec); A.toast(`Bookmarked page ${V.cur}`);
+  };
+  V.bmList = async () => {
+    for (;;) {
+      const l = V.bms(); if (!l.length) return A.toast('No bookmarks yet');
+      const r = await A.modal({ title: 'Bookmarks', mid: false, body: `<div class="lst">${l.map((b, i) => `<div class="srow" data-i="${i}"><span class="badge b-pdf" style="width:46px;height:36px;border-radius:12px;font-size:12px">p.${b.p}</span><button class="sn" data-bm="go" style="text-align:start;font-size:15px">${esc(b.name || 'Page ' + b.p)}</button><button class="ib" data-bm="ren">${A.ic('edit')}</button><button class="ib" data-bm="del" style="color:var(--danger)">${A.ic('trash')}</button></div>`).join('')}</div>`, actions: [{ k: 'ok', label: 'Close', p: 1 }], onOpen: (o, close) => o.addEventListener('click', (e) => { const b = e.target.closest('[data-bm]'); if (!b) return; o.dataset.i = b.closest('.srow').dataset.i; o.dataset.a = b.dataset.bm; close('act'); }), collect: (o) => ({ i: +o.dataset.i, a: o.dataset.a }) });
+      if (r.k !== 'act') return; const bm = l[r.v.i];
+      if (r.v.a === 'go') { V.go(bm.p, true); return; }
+      if (r.v.a === 'del') { l.splice(r.v.i, 1); await A.persist(rec); continue; }
+      const n = await A.prompt('Bookmark name', bm.name || '', { ph: `Name (page ${bm.p} stays fixed)` }); if (n !== null) { bm.name = n.trim(); await A.persist(rec); }
+    }
+  };
   V.more = async () => {
-    const has = (rec.bm || []).includes(V.cur);
+    const has = V.bms().some((b) => b.p === V.cur);
     const k = await A.sheet('More', [
       { k: 'goto', label: 'Go to page', icon: 'file' }, { k: 'zoom', label: 'Zoom', icon: 'zoom' }, { k: 'text', label: $('.reflow', el).hidden ? 'Text view' : 'Close text view', icon: 'reflow' }, { k: 'copy', label: 'Copy page text', icon: 'copy' },
       { k: 'bm', label: has ? 'Remove bookmark' : 'Bookmark this page', icon: 'bookmark' }, { k: 'bms', label: 'Bookmarks', icon: 'list' },
       { k: 'print', label: 'Print', icon: 'print' }, { k: 'share', label: 'Share', icon: 'share' }, { k: 'dl', label: 'Download', icon: 'download' }]);
     if (k === 'goto') V.gotoDlg(); else if (k === 'zoom') { $('.zbar', el).hidden = false; }
     else if (k === 'text') V.reflow(); else if (k === 'bm') V.bmToggle();
-    else if (k === 'bms') { const l = rec.bm || []; if (!l.length) return A.toast('No bookmarks yet'); const p = await A.sheet('Bookmarks', l.map((n) => ({ k: String(n), label: `Page ${n}`, icon: 'bookmark' }))); p && V.go(+p, true); }
+    else if (k === 'bms') V.bmList();
     else if (k === 'copy') { const ps = await A.pageParas(V.pdf, V.cur); try { await navigator.clipboard.writeText(ps.map((p) => p.t).join('\n\n')); A.toast('Text copied'); } catch (e) { A.toast('Copy failed'); } }
     else if (k === 'print') A.printPdfDoc(V.pdf); else if (k === 'share') A.share(rec.name, V.blob); else if (k === 'dl') A.download(rec.name, V.blob);
   };
@@ -235,7 +257,7 @@ A.viewPdf = async (rec, blob, o = {}) => {
       <button class="sw ${V.snap ? 'on' : ''}" data-s="snap"><span class="g">Page by page<small>Flip one page at a time</small></span><i></i></button>
       <button class="sw ${V.rev ? 'on' : ''}" data-s="rev"><span class="g">Reverse book direction<small>Right to left — for Arabic books and manga</small></span><i></i></button>
       <button class="sw ${A.set.keepOn ? 'on' : ''}" data-s="keepOn"><span class="g">Keep screen on</span><i></i></button>
-      <label class="lbl">Rotate document (instead of rotating your device)</label><div class="seg" id="vrot"><button data-rot="-90">${A.ic('rotL', 'style="vertical-align:middle"')} Left</button><button data-rot="90">${A.ic('rotR', 'style="vertical-align:middle"')} Right</button></div>`;
+      <label class="lbl">Rotate document · now ${V.rot}° (use instead of rotating your device)</label><div class="seg" id="vrot"><button data-rot="-90">${A.ic('rotL', 'style="vertical-align:middle"')} Left</button><button data-rot="90">${A.ic('rotR', 'style="vertical-align:middle"')} Right</button></div>`;
     await A.modal({
       title: 'View mode', mid: false, body: html(), actions: [{ k: 'ok', label: 'Done', p: 1 }],
       onOpen: (o) => {
@@ -250,19 +272,15 @@ A.viewPdf = async (rec, blob, o = {}) => {
       },
     });
   };
-  V.toggleTwo = () => {
-    V.spread = !V.spread; $('[data-v=two]', el).classList.toggle('on', V.spread);
-    if (V.spread) { V._prev = { dir: V.dir, snap: V.snap }; V.dir = 'h'; V.snap = true; } else if (V._prev) { V.dir = V._prev.dir; V.snap = V._prev.snap; }
-    V.zoom = 1; V.relayout();
-  };
+  V.toggleTwo = () => { V.spread = !V.spread; $('[data-v=two]', el).classList.toggle('on', V.spread); V.zoom = 1; V.relayout(); };
 
   /* --- events --- */
   el.addEventListener('click', async (e) => {
     const t = e.target.closest('[data-v]'); if (!t) return; const a = t.dataset.v;
     if (a === 'back') { if (V.edit && V.dirty && !(await A.confirm('You have unsaved edits. Leave without saving?', 'Leave', true))) return; A.pop(); }
-    else if (a === 'search') { const b = $('.vsearch', el); b.hidden = !b.hidden; if (!b.hidden) $('input', b).focus(); }
-    else if (a === 'sclose') { $('.vsearch', el).hidden = true; V.hits = []; V.hi = -1; V.redraw(); }
-    else if (a === 'snext' || a === 'sprev') { if (V.hits.length) { V.hi = (V.hi + (a === 'snext' ? 1 : -1) + V.hits.length) % V.hits.length; V.showHit(); } }
+    else if (a === 'search') { const b = $('.vsearch', el); if (b.hidden) { b.hidden = false; $('input', b).focus(); } else V.endSearch(); }
+    else if (a === 'sclose') V.endSearch();
+    else if (a === 'snext' || a === 'sprev') { if (V.hits.length) { const n = V.hits.length, nx = (V.hi + (a === 'snext' ? 1 : -1) + n) % n; if (n > 1 && ((a === 'snext' && nx === 0) || (a === 'sprev' && nx === n - 1))) A.toast(a === 'snext' ? 'Back to the first result' : 'Jumped to the last result'); V.hi = nx; V.showHit(); } }
     else if (a === 'goto') V.gotoDlg(); else if (a === 'zclose') $('.zbar', el).hidden = true;
     else if (a === 'more') V.more(); else if (a === 'tools') V.toolsMenu(); else if (a === 'view') V.viewMenu(); else if (a === 'two') V.toggleTwo();
     else if (a === 'organize') { if (V.protectedDoc) return A.toast('Remove the file protection first (Tools → Remove protection)'); A.pageManager(rec, V.blob, V); }
@@ -284,18 +302,37 @@ A.viewPdf = async (rec, blob, o = {}) => {
   V.sc.addEventListener('pointerdown', (e) => { tap = { x: e.clientX, y: e.clientY, t: Date.now() }; });
   V.sc.addEventListener('pointerup', (e) => {
     if (!tap || V.edit || pinch) return; const mv = Math.hypot(e.clientX - tap.x, e.clientY - tap.y), dt = Date.now() - tap.t; tap = null; if (mv > 10 || dt > 450) return;
-    const sb = $('.vsearch', el); if (!sb.hidden) { sb.hidden = true; return; } const zb = $('.zbar', el); if (!zb.hidden) { zb.hidden = true; return; }
+    const sb = $('.vsearch', el); if (!sb.hidden) { V.endSearch(); return; } const zb = $('.zbar', el); if (!zb.hidden) { zb.hidden = true; return; }
     const now = Date.now(), r = V.sc.getBoundingClientRect();
     if (now - last < 320) { last = 0; clearTimeout(V.tt); V.setZoom(V.zoom > 1.3 ? 1 : 2.4, e.clientX - r.left, e.clientY - r.top); } else { last = now; V.tt = setTimeout(() => el.classList.toggle('hide'), 260); }
   });
   V.sc.addEventListener('touchstart', (e) => { if (e.touches.length === 2) { V.pinching = true; pinch = { d: dist(e), z: V.zoom, nz: V.zoom }; const r = V.sc.getBoundingClientRect(); pinch.mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left; pinch.my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top; } }, { passive: true });
   V.sc.addEventListener('touchmove', (e) => { if (!pinch || e.touches.length !== 2) return; e.preventDefault(); pinch.nz = clamp((pinch.z * dist(e)) / pinch.d, 0.5, 5); V.vp.style.transformOrigin = `${V.sc.scrollLeft + pinch.mx}px ${V.sc.scrollTop + pinch.my}px`; V.vp.style.transform = `scale(${pinch.nz / V.zoom})`; }, { passive: false });
   V.sc.addEventListener('touchend', (e) => { if (pinch && e.touches.length < 2) { V.vp.style.transform = ''; const p = pinch; pinch = null; V.setZoom(p.nz, p.mx, p.my); setTimeout(() => (V.pinching = false), 150); } });
-  V.sc.addEventListener('wheel', (e) => { if (e.ctrlKey) { e.preventDefault(); const r = V.sc.getBoundingClientRect(); V.setZoom(V.zoom * (e.deltaY < 0 ? 1.1 : 0.9), e.clientX - r.left, e.clientY - r.top); } }, { passive: false });
+  V.flip = (sign) => { const g = V.groups || V.els.map((_, i) => [i]), idx = g.findIndex((x) => x.includes(V.cur - 1)); V.go(g[clamp(idx + sign, 0, g.length - 1)][0] + 1, true); };
+  V.sc.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) { e.preventDefault(); const r = V.sc.getBoundingClientRect(); return V.setZoom(V.zoom * (e.deltaY < 0 ? 1.1 : 0.9), e.clientX - r.left, e.clientY - r.top); }
+    if (V.edit && V.tool !== 'hand') return; const d = e.deltaY || e.deltaX; if (!d) return;
+    if (V.snap && V.zoom <= 1.05) { e.preventDefault(); if (V.wlock) return; V.wlock = true; setTimeout(() => (V.wlock = false), 400); V.flip(d > 0 ? 1 : -1); return; }
+    if (V.dir === 'h') { e.preventDefault(); V.sc.scrollLeft += (V.rev ? -1 : 1) * (e.deltaY + e.deltaX); }
+  }, { passive: false });
+  /* mouse: drag the page like a finger (scroll, or flip pages in page-by-page mode) */
+  let pan = null; V.sc.style.cursor = 'grab';
+  V.sc.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse' || e.button !== 0 || V.edit || e.target.closest('button')) return; pan = { x: e.clientX, y: e.clientY, sl: V.sc.scrollLeft, st: V.sc.scrollTop, moved: false }; });
+  V.onPm = (e) => { if (!pan) return; const dx = e.clientX - pan.x, dy = e.clientY - pan.y; if (!pan.moved && Math.hypot(dx, dy) > 5) { pan.moved = true; V.sc.style.cursor = 'grabbing'; V.sc.style.scrollSnapType = 'none'; V.sc.style.userSelect = 'none'; } if (pan.moved) { V.sc.scrollLeft = pan.sl - dx; V.sc.scrollTop = pan.st - dy; } };
+  V.onPu = (e) => {
+    if (!pan) return; const p = pan, dx = e.clientX - p.x, dy = e.clientY - p.y; pan = null; if (!p.moved) return; V.sc.style.cursor = 'grab'; V.sc.style.scrollSnapType = ''; V.sc.style.userSelect = '';
+    if (V.snap && V.zoom <= 1.05) { if (V.dir === 'h' && Math.abs(dx) > 70) V.flip(dx < 0 ? (V.rev ? -1 : 1) : V.rev ? 1 : -1); else if (V.dir === 'v' && Math.abs(dy) > 70) V.flip(dy < 0 ? 1 : -1); else V.go(V.cur, true); }
+  };
+  V.onKey = (e) => {
+    if (A.stack[A.stack.length - 1] !== undefined && A.stack[A.stack.length - 1].el !== el) return; if (/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '')) return; if (!(V.snap || V.dir === 'h')) return;
+    const k = e.key, f = k === 'ArrowRight' ? (V.rev ? -1 : 1) : k === 'ArrowLeft' ? (V.rev ? 1 : -1) : k === 'ArrowDown' || k === 'PageDown' || k === ' ' ? 1 : k === 'ArrowUp' || k === 'PageUp' ? -1 : 0; if (f) { e.preventDefault(); V.flip(f); }
+  };
+  document.addEventListener('pointermove', V.onPm); document.addEventListener('pointerup', V.onPu); document.addEventListener('keydown', V.onKey);
   V.onResize = () => { if (A.V === V && V.pdf) { V.layout(); V.vis(); } }; window.addEventListener('resize', V.onResize);
   V.onVis = () => { if (document.visibilityState === 'visible') V.wake(); }; document.addEventListener('visibilitychange', V.onVis);
 
-  A.push(el, () => { if (V.pdf && !V.edit) { rec.lastPage = V.cur >= V.N ? 1 : V.cur; A.persist(rec).catch(() => {}); } window.removeEventListener('resize', V.onResize); document.removeEventListener('visibilitychange', V.onVis); Object.values(V.tasks).forEach((t) => t && t.cancel && t.cancel()); V.pdf && V.pdf.destroy(); if (V.wl) V.wl.release().catch(() => {}); if (A.V === V) A.V = null; });
+  A.push(el, () => { document.removeEventListener('pointermove', V.onPm); document.removeEventListener('pointerup', V.onPu); document.removeEventListener('keydown', V.onKey); if (V.pdf && !V.edit) { rec.lastPage = V.cur >= V.N ? 1 : V.cur; A.persist(rec).catch(() => {}); } window.removeEventListener('resize', V.onResize); document.removeEventListener('visibilitychange', V.onVis); Object.values(V.tasks).forEach((t) => t && t.cancel && t.cancel()); V.pdf && V.pdf.destroy(); if (V.wl) V.wl.release().catch(() => {}); if (A.V === V) A.V = null; });
   V.applyRead(); V.wake();
   const resume = !o.page && rec.lastPage > 1 ? rec.lastPage : 0; const ok = await V.open(blob, o.page || resume || 1); if (!ok) return A.pop(); if (resume && V.N >= resume) A.toast(`Continued from page ${resume}`);
   if (o.edit) A.edToggle && A.edToggle(V, 'edit');

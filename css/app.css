@@ -156,3 +156,6 @@ svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stro
 .mini{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:8px;margin-top:8px}.mini .pt{border-radius:12px}
 
 .sub.path{direction:ltr;text-align:start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--pri);opacity:.9}
+.editing .vscroll{cursor:default!important}
+.pt{cursor:grab}.pt:active{cursor:grabbing}
+.ck2{width:24px;height:24px;border-radius:50%;border:2px solid var(--tx2);display:flex;align-items:center;justify-content:center;flex:none;margin-left:6px;color:transparent}.ck2 svg{width:15px;height:15px;stroke-width:3}.ck2.on{background:var(--pri);border-color:var(--pri);color:#fff}.fi.sel{background:var(--pri2)}

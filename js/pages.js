@@ -23,10 +23,10 @@ A.rebuildPdf = async (bytes, items) => {
 
 /* Save choice: replace / new file / download */
 A.saveChoice = async ({ rec, blob, suffix, V, page }) => {
-  const k = await A.sheet('Save result', [rec && !rec.enc && { k: 'rep', label: 'Replace the current file', icon: 'check' }, rec && { k: 'copy', label: 'Save as a new file', icon: 'copy' }, { k: 'dl', label: 'Download', icon: 'download' }]);
+  const k = await A.sheet('Save result', [rec && { k: 'copy', label: 'Save as a new file (original stays untouched)', icon: 'copy' }, rec && !rec.enc && { k: 'rep', label: 'Replace the current file', icon: 'check' }, { k: 'dl', label: 'Download', icon: 'download' }]);
   if (!k) return false;
   if (k === 'dl') { A.download(rec ? baseOf(rec.name) + suffix : 'file.pdf', blob); return true; }
-  if (k === 'copy') { await A.saveBlob(baseOf(rec.name) + suffix, blob); A.toast('Saved as a new file'); return true; }
+  if (k === 'copy') { const nr = await A.saveBlob(baseOf(rec.name) + suffix, blob, rec.dev ? null : rec.folder); if (V && A.V === V) { await V.switchTo(nr, blob, page); A.toast(`Saved as “${nr.name}” — you are now viewing the copy`, 3600); } else A.toast('Saved as a new file'); return true; }
   await A.updateBlob(rec, blob); A.toast('File replaced');
   if (V && A.V === V) { V.rfHtml = null; V.ann = {}; await V.open(blob, page || V.cur); }
   return true;
@@ -77,13 +77,14 @@ A.pageManager = async (rec, blob, V) => {
   let drag = null; const ghostOf = (t, n) => { const g = document.createElement('div'); g.className = 'ghost'; const c = $('canvas', t).cloneNode(); c.getContext('2d').drawImage($('canvas', t), 0, 0); c.style.transform = ''; g.appendChild(c); if (n > 1) g.insertAdjacentHTML('beforeend', `<b>${n}</b>`); document.body.appendChild(g); return g; };
   grid.addEventListener('contextmenu', (e) => e.preventDefault());
   grid.addEventListener('touchmove', (e) => { if (drag && drag.active) e.preventDefault(); }, { passive: false });
+  const startDrag = () => {
+    if (!drag || drag.active) return; const t = drag.t, id = t.dataset.id; const grp = sel.has(id) ? items.filter((i) => sel.has(i.id)).map((i) => i.id) : [id]; drag.active = true; drag.group = new Set(grp);
+    drag.ghost = ghostOf(t, grp.length); drag.mark = document.createElement('div'); drag.mark.className = 'ins'; grid.appendChild(drag.mark); $$('.pt', grid).forEach((p) => p.classList.toggle('ghosted', drag.group.has(p.dataset.id)));
+    if (navigator.vibrate) navigator.vibrate(15); place(drag.x, drag.y);
+  };
   grid.addEventListener('pointerdown', (e) => {
-    const t = e.target.closest('.pt'); if (!t || e.button > 0) return; drag = { t, x: e.clientX, y: e.clientY, active: false, id: e.pointerId };
-    drag.timer = setTimeout(() => {
-      if (!drag) return; const id = t.dataset.id; const grp = sel.has(id) ? items.filter((i) => sel.has(i.id)).map((i) => i.id) : [id]; drag.active = true; drag.group = new Set(grp);
-      drag.ghost = ghostOf(t, grp.length); drag.mark = document.createElement('div'); drag.mark.className = 'ins'; grid.appendChild(drag.mark); $$('.pt', grid).forEach((p) => p.classList.toggle('ghosted', drag.group.has(p.dataset.id)));
-      if (navigator.vibrate) navigator.vibrate(15); place(drag.x, drag.y);
-    }, 320);
+    const t = e.target.closest('.pt'); if (!t || e.button > 0) return; drag = { t, x: e.clientX, y: e.clientY, active: false, id: e.pointerId, mouse: e.pointerType === 'mouse' };
+    if (!drag.mouse) drag.timer = setTimeout(startDrag, 320); /* touch: press and hold — mouse: just press and drag */
   });
   const place = (cx, cy) => {
     drag.ghost.style.left = cx + 'px'; drag.ghost.style.top = cy + 'px'; const tiles = $$('.pt:not(.ghosted)', grid); if (!tiles.length) return; let best = null, bd = 1e9;
@@ -92,7 +93,7 @@ A.pageManager = async (rec, blob, V) => {
     Object.assign(drag.mark.style, { left: (after ? r.right + 3 : r.left - 6) - gr.left + 'px', top: r.top - gr.top + 'px', height: r.height + 'px' });
     const sb = body.getBoundingClientRect(); if (cy < sb.top + 70) body.scrollTop -= 14; else if (cy > sb.bottom - 120) body.scrollTop += 14;
   };
-  document.addEventListener('pointermove', (drag_mv = (e) => { if (!drag || e.pointerId !== drag.id) return; if (!drag.active) { if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 10) { clearTimeout(drag.timer); drag = null; } return; } place(e.clientX, e.clientY); }));
+  document.addEventListener('pointermove', (drag_mv = (e) => { if (!drag || e.pointerId !== drag.id) return; if (!drag.active) { const mv = Math.hypot(e.clientX - drag.x, e.clientY - drag.y); if (drag.mouse) { if (mv > 4) { drag.x = e.clientX; drag.y = e.clientY; startDrag(); } return; } if (mv > 10) { clearTimeout(drag.timer); drag = null; } return; } place(e.clientX, e.clientY); }));
   const endDrag = (e, cancel) => {
     if (!drag || e.pointerId !== drag.id) return; clearTimeout(drag.timer); const d = drag; drag = null; if (!d.active) return;
     d.ghost.remove(); d.mark.remove(); supClick = true; setTimeout(() => (supClick = false), 60);

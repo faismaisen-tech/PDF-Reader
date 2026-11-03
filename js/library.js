@@ -1,10 +1,10 @@
 'use strict';
 /* ===== Library: home screen, device folders, folders, favorites, bin, tools grid, settings ===== */
-const L = (A.lib = { files: [], dev: [], src: [], folders: [], tab: 'files', filter: 'all', q: '', folder: null, needGrant: false, limit: 300 });
-const TYPES = { pdf: 'pdf', doc: 'word', docx: 'word', xls: 'excel', xlsx: 'excel', csv: 'excel', ppt: 'ppt', pptx: 'ppt', txt: 'txt' };
+const L = (A.lib = { files: [], dev: [], src: [], folders: [], tab: 'files', filter: 'all', q: '', folder: null, needGrant: false, limit: 300, selMode: false, sel: new Set(), visAll: [] });
+const TYPES = { pdf: 'pdf', doc: 'word', docx: 'word', xls: 'excel', xlsx: 'excel', csv: 'excel', ppt: 'ppt', pptx: 'ppt', txt: 'txt', md: 'txt' };
 const TLAB = { pdf: 'PDF', word: 'DOC', excel: 'XLS', ppt: 'PPT', txt: 'TXT' };
 A.typeOf = (ext) => TYPES[ext] || null;
-A.ACCEPT = '.pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt';
+A.ACCEPT = '.pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.md';
 A.devSupported = () => 'showDirectoryPicker' in window && 'showOpenFilePicker' in window;
 
 L.reload = async () => { L.files = await A.db.all('files'); L.folders = await A.db.all('folders'); L.src = await A.db.all('devsrc'); L.dev = await A.db.all('devfiles'); };
@@ -68,7 +68,11 @@ A.addFiles = async (files, folder = L.folder) => {
   }
   L.render(); return out;
 };
-A.saveBlob = async (name, blob, folder = L.folder) => { const r = { id: uid(), name, ext: extOf(name), size: blob.size, blob, folder, fav: 0, del: 0, added: Date.now(), bm: [] }; await A.db.put('files', r); L.files.push(r); L.render(); return r; };
+A.uniqueName = (name, folder) => {
+  const taken = new Set(L.files.filter((f) => !f.del && (f.folder || null) === (folder || null)).map((f) => f.name.toLowerCase())); if (!taken.has(name.toLowerCase())) return name;
+  const e = extOf(name), base = e ? name.slice(0, -(e.length + 1)) : name; let n = 2; while (taken.has(`${base} (${n})${e ? '.' + e : ''}`.toLowerCase())) n++; return `${base} (${n})${e ? '.' + e : ''}`;
+};
+A.saveBlob = async (name, blob, folder = L.folder) => { name = A.uniqueName(name, folder); const r = { id: uid(), name, ext: extOf(name), size: blob.size, blob, folder, fav: 0, del: 0, added: Date.now(), bm: [] }; await A.db.put('files', r); L.files.push(r); L.render(); return r; };
 A.updateBlob = async (rec, blob) => {
   if (rec.dev) {
     if (!(await A.devPerm(rec.handle, true))) throw new Error('No permission to write to the original file');
@@ -93,20 +97,28 @@ L.build = () => {
   $('#app').innerHTML = `<div id="shell">
   <header class="top"><div class="ttl" id="ttl">PDF Reader</div>
     <button class="ib" data-a="search">${A.ic('search')}</button><button class="ib" data-a="view"></button><button class="ib" data-a="sort">${A.ic('more')}</button></header>
+  <header class="top" id="selhdr" hidden><button class="ib" data-a="sx">${A.ic('x')}</button><div class="ttl" id="selttl">0 selected</div><button class="ib" data-a="sall">${A.ic('check')}</button><button class="ib" data-a="sdel" style="color:var(--danger)">${A.ic('trash')}</button><button class="ib" data-a="smore">${A.ic('more')}</button></header>
   <div class="sbar" id="sbar" hidden><input id="q" placeholder="Search files…"></div>
   <div class="chips" id="chips"></div>
   <main id="content"></main>
   <button class="fab" data-a="fab" aria-label="Add">${A.ic('plus')}</button>
   <nav class="bnav">${[['files', 'folder', 'Files'], ['tools', 'tools', 'Tools'], ['bin', 'trash', 'Bin'], ['set', 'set', 'Settings']].map(([k, i, t]) => `<button data-tab="${k}">${A.ic(i)}<span>${t}</span></button>`).join('')}</nav></div>`;
   $('#app').addEventListener('click', L.click);
+  /* press and hold a file to start selecting several files */
+  let lp = null;
+  $('#content').addEventListener('pointerdown', (e) => { const row = e.target.closest('.fi[data-id]'); if (!row || L.selMode || e.button > 0 || e.target.closest('.ib')) return; lp = { x: e.clientX, y: e.clientY, t: setTimeout(() => { L.selMode = true; L.sel = new Set([row.dataset.id]); L.supClick = true; setTimeout(() => (L.supClick = false), 400); if (navigator.vibrate) navigator.vibrate(12); L.render(); }, 450) }; });
+  const cancelLp = (e) => { if (lp && (!e.clientX || Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 8 || e.type !== 'pointermove')) { clearTimeout(lp.t); lp = null; } };
+  $('#content').addEventListener('pointermove', cancelLp); $('#content').addEventListener('pointerup', cancelLp); $('#content').addEventListener('pointercancel', cancelLp);
+  $('#content').addEventListener('contextmenu', (e) => { if (e.target.closest('.fi')) e.preventDefault(); });
   $('#q').addEventListener('input', (e) => { L.q = e.target.value.trim().toLowerCase(); L.render(true); });
 };
 
 L.render = () => {
   if (!$('#content')) return;
   $$('.bnav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === L.tab));
-  const files = L.tab === 'files';
-  $('#chips').hidden = !files; $('.fab').hidden = !files; $('#ttl').textContent = { files: 'PDF Reader', tools: 'Tools', bin: 'Bin', set: 'Settings' }[L.tab];
+  const files = L.tab === 'files'; if (!files) { L.selMode = false; L.sel.clear(); }
+  $('#selhdr').hidden = !L.selMode; $('#app header.top:not(#selhdr)').hidden = L.selMode; if (L.selMode) $('#selttl').textContent = `${L.sel.size} selected`;
+  $('#chips').hidden = !files; $('.fab').hidden = !files || L.selMode; $('#ttl').textContent = { files: 'PDF Reader', tools: 'Tools', bin: 'Bin', set: 'Settings' }[L.tab];
   ['view', 'search', 'sort'].forEach((k) => ($(`[data-a=${k}]`).hidden = !files));
   $('[data-a=view]').innerHTML = A.ic(A.set.view === 'list' ? 'grid' : 'list');
   if (!files) $('#sbar').hidden = true;
@@ -115,11 +127,10 @@ L.render = () => {
   ({ files: L.rFiles, tools: L.rTools, bin: L.rBin, set: L.rSet })[L.tab](c);
 };
 
-const rowHtml = (r) => `<div class="fi" data-id="${esc(r.id)}" data-a="open">
-  <div class="badge b-${TYPES[r.ext]}">${TLAB[TYPES[r.ext]]}</div>
+const rowHtml = (r) => `<div class="fi ${L.selMode && L.sel.has(r.id) ? 'sel' : ''}" data-id="${esc(r.id)}" data-a="open">
+  ${L.selMode ? `<span class="ck2 ${L.sel.has(r.id) ? 'on' : ''}">${A.ic('check')}</span>` : ''}<div class="badge b-${TYPES[r.ext]}">${TLAB[TYPES[r.ext]]}</div>
   <div class="meta"><div class="nm">${r.enc ? '🔒 ' : ''}${esc(r.name)}</div><div class="sub">${fmtSize(r.size)} · ${fmtDate(r.added)}</div>${r.dev ? `<div class="sub path" dir="ltr">${esc(r.path)}</div>` : ''}</div>
-  <button class="ib ${r.fav ? 'fav-on' : ''}" data-a="fav" data-id="${esc(r.id)}">${A.ic('star')}</button>
-  <button class="ib" data-a="menu" data-id="${esc(r.id)}">${A.ic('more')}</button></div>`;
+  ${L.selMode ? '' : `<button class="ib ${r.fav ? 'fav-on' : ''}" data-a="fav" data-id="${esc(r.id)}">${A.ic('star')}</button><button class="ib" data-a="menu" data-id="${esc(r.id)}">${A.ic('more')}</button>`}</div>`;
 
 L.devPanel = () => {
   const sup = A.devSupported();
@@ -148,7 +159,7 @@ L.rFiles = (c) => {
   if (L.folder && !q && f === 'all') { const path = []; let id = L.folder; while (id) { const x = L.folders.find((y) => y.id === id); if (!x) break; path.unshift(x); id = x.parent; } top += `<div class="crumbs"><b data-a="cd" data-id="">Home</b>${path.map((x) => ` › <b data-a="cd" data-id="${x.id}">${esc(x.name)}</b>`).join('')}</div>`; }
   if (q && $('#sbar').hidden) top += `<div class="qchip">Search: “${esc(L.q)}”<button class="ib" style="width:28px;height:28px" data-a="clearq">${A.ic('x')}</button></div>`;
   const fh = folders.map((x) => `<div class="fi" data-a="cd" data-id="${x.id}"><div class="badge b-fold">${A.ic('folder')}</div><div class="meta"><div class="nm">${esc(x.name)}</div><div class="sub">${live.filter((y) => y.folder === x.id).length} files</div></div><button class="ib" data-a="fmenu" data-id="${x.id}">${A.ic('more')}</button></div>`).join('');
-  const shown = list.slice(0, L.limit), more = list.length - shown.length;
+  L.visAll = list; const shown = list.slice(0, L.limit), more = list.length - shown.length;
   const empty = f === 'device' ? '' : `<div class="empty">${A.ic(f === 'folders' ? 'folder' : 'file')}<br>${f === 'folders' ? 'No folders yet' : 'No files here'}<br>Tap <b>+</b> to add files or link device folders</div>`;
   c.innerHTML = top + (fh || shown.length ? `<div class="list">${fh}${shown.map(rowHtml).join('')}</div>${more > 0 ? `<button class="addbtn" data-a="more">Show ${more} more</button>` : ''}` : empty);
 };
@@ -162,7 +173,7 @@ L.rBin = (c) => {
 
 const TOOLS = [
   ['editpdf', 'Edit PDF', 'edit', '#e5484d'], ['pages', 'Organize pages', 'pages', '#8b5cf6'], ['merge', 'Merge PDF', 'merge', '#ee7a2f'],
-  ['split', 'Split PDF', 'split', '#d9468f'], ['compress', 'Compress PDF', 'zip', '#c99a06'], ['pdf2word', 'PDF to Word', 'word', '#3b7ddd'],
+  ['split', 'Split PDF', 'split', '#d9468f'], ['compress', 'Compress PDF', 'zip', '#c99a06'], ['pdf2word', 'PDF to Word', 'word', '#3b7ddd'], ['pdf2text', 'PDF to Text / MD', 'reflow', '#5b6ee1'],
   ['word2pdf', 'Word to PDF', 'file', '#e5484d'], ['text2pdf', 'Text to PDF', 'text', '#14a89a'], ['txt2pdf', 'TXT to PDF', 'words', '#0ea5a5'],
   ['img2pdf', 'Images to PDF', 'image', '#34a86b'], ['pdf2img', 'PDF to Images', 'image', '#2ba3e0'], ['numbers', 'Page numbers', 'hash', '#6d8f1f'],
   ['watermark', 'Watermark', 'drop', '#0b8fb3'], ['unlock', 'Remove protection', 'unlock', '#64748b'], ['sigs', 'My signatures', 'sign', '#6366f1'],
@@ -173,6 +184,7 @@ L.rSet = async (c) => {
   const th = { auto: 'Automatic', light: 'Light', dark: 'Dark' }[A.set.theme];
   c.innerHTML = `<div class="sec">
     <button class="row" data-a="theme">${A.ic('moon')}<span class="g">Appearance<small>${th}</small></span></button>
+    <button class="row" data-a="aisettings">${A.ic('ai')}<span class="g">AI text recognition<small>Optional API key for scanned books</small></span></button>
     <button class="row" data-a="devsettings">${A.ic('device')}<span class="g">Device folders<small>${L.src.length} linked · ${L.dev.length} files found</small></span></button>
     ${A.installEvt ? `<button class="row" data-a="install">${A.ic('download')}<span class="g">Install app on home screen</span></button>` : ''}</div>
     <div class="sec"><div class="row">${A.ic('info')}<span class="g">Storage<small id="stg">…</small></span></div>
@@ -183,6 +195,11 @@ L.rSet = async (c) => {
 
 /* ---------- Events ---------- */
 L.click = async (e) => {
+  if (L.supClick) return;
+  if (L.selMode) {
+    const row = e.target.closest('.fi[data-id]'); if (row) { const id = row.dataset.id; L.sel.has(id) ? L.sel.delete(id) : L.sel.add(id); return L.render(); }
+    const b = e.target.closest('#selhdr [data-a]'); if (b) return L.selAction(b.dataset.a); if (!e.target.closest('[data-tab]')) return;
+  }
   const sb = $('#sbar'); if (sb && !sb.hidden && !e.target.closest('#sbar') && !e.target.closest('[data-a=search]')) { sb.hidden = true; L.render(); }
   const t = e.target.closest('[data-tab],[data-f],[data-a]'); if (!t) return;
   if (t.dataset.tab) { L.tab = t.dataset.tab; return L.render(); }
@@ -198,7 +215,7 @@ L.click = async (e) => {
     case 'search': { const b = $('#sbar'); b.hidden = !b.hidden; if (!b.hidden) $('#q').focus(); L.render(); return; }
     case 'clearq': L.q = ''; $('#q').value = ''; return L.render();
     case 'view': A.set.view = A.set.view === 'list' ? 'grid' : 'list'; A.saveSet(); return L.render();
-    case 'sort': { const k = await A.sheet('Sort by', [{ k: 'date', label: 'Newest first', icon: 'clock' }, { k: 'opened', label: 'Recently opened', icon: 'eye' }, { k: 'name', label: 'Name', icon: 'az' }, { k: 'size', label: 'Size', icon: 'size' }]); if (k) { A.set.sort = k; A.saveSet(); L.render(); } return; }
+    case 'sort': { const k = await A.sheet('More', [{ k: 'select', label: 'Select files', icon: 'check' }, { k: 'date', label: 'Newest first', icon: 'clock' }, { k: 'opened', label: 'Recently opened', icon: 'eye' }, { k: 'name', label: 'Name', icon: 'az' }, { k: 'size', label: 'Size', icon: 'size' }]); if (k === 'select') { L.selMode = true; L.sel = new Set(); L.render(); } else if (k) { A.set.sort = k; A.saveSet(); L.render(); } return; }
     case 'fab': return L.fab();
     case 'tool': return A.runTool(t.dataset.k);
     case 'addfolder': return L.addFolder();
@@ -206,6 +223,7 @@ L.click = async (e) => {
     case 'rescan': return L.refreshDev(true);
     case 'grant': return L.grant();
     case 'rmsrc': return L.removeSrc(id);
+    case 'aisettings': return A.aiDlg();
     case 'devsettings': L.tab = 'files'; L.filter = 'device'; return L.render();
     case 'restore': r.del = 0; return L.save(r);
     case 'kill': if (await A.confirm('Delete this file permanently?', 'Delete', true)) { await A.db.del('files', id); L.files = L.files.filter((f) => f !== r); L.render(); } return;
@@ -261,5 +279,24 @@ L.folderMenu = async (f) => {
     for (const r of L.files.filter((x) => x.folder === f.id)) { r.folder = f.parent; await A.db.put('files', r); }
     for (const s of L.folders.filter((x) => x.parent === f.id)) { s.parent = f.parent; await A.db.put('folders', s); }
     await A.db.del('folders', f.id); L.folders = L.folders.filter((x) => x !== f); L.render();
+  }
+};
+
+/* ---------- multi-select actions ---------- */
+L.selAction = async (a) => {
+  const recs = [...L.sel].map((id) => L.rec(id)).filter(Boolean), lib = recs.filter((r) => !r.dev), dev = recs.length - lib.length;
+  if (a === 'sx') { L.selMode = false; L.sel.clear(); return L.render(); }
+  if (a === 'sall') { if (L.visAll.length && L.visAll.every((r) => L.sel.has(r.id))) L.sel.clear(); else L.visAll.forEach((r) => L.sel.add(r.id)); return L.render(); }
+  if (!recs.length) return A.toast('Select at least one file');
+  if (a === 'sdel') {
+    if (!lib.length) return A.toast("Files from your device folders can't be deleted here");
+    if (!(await A.confirm(`Move ${lib.length} file(s) to the bin?${dev ? ` (${dev} device file(s) will be skipped)` : ''}`, 'Move to bin', true))) return;
+    const now = Date.now(); lib.forEach((r) => (r.del = now)); await A.db.putMany('files', lib); L.selMode = false; L.sel.clear(); L.render(); return A.toast(`${lib.length} file(s) moved to the bin`);
+  }
+  if (a === 'smore') {
+    const k = await A.sheet(`${recs.length} selected`, [{ k: 'fav', label: recs.every((r) => r.fav) ? 'Remove from favorites' : 'Add to favorites', icon: 'star' }, lib.length && { k: 'move', label: 'Move to folder', icon: 'folder' }]); if (!k) return;
+    if (k === 'fav') { const v = recs.every((r) => r.fav) ? 0 : 1; recs.forEach((r) => (r.fav = v)); await A.db.putMany('files', lib); await A.db.putMany('devfiles', recs.filter((r) => r.dev)); }
+    if (k === 'move') { const to = await A.sheet('Move to', [{ k: '_root', label: 'Home', icon: 'home' }, ...L.folders.map((f) => ({ k: f.id, label: f.name, icon: 'folder' }))]); if (!to) return; lib.forEach((r) => (r.folder = to === '_root' ? null : to)); await A.db.putMany('files', lib); }
+    L.selMode = false; L.sel.clear(); L.render();
   }
 };

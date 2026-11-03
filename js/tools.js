@@ -89,29 +89,76 @@ A.mergeSafe = async (files, prog) => {
   return { bytes, fixed };
 };
 
+/* ---------- text extraction: embedded text first, OCR (offline or AI) when a page is scanned or garbled ---------- */
+const ocrParas = (t) => t.split(/\n\s*\n/).map((x) => x.split('\n').map((l) => l.trim()).filter(Boolean).join(' ')).filter(Boolean).map((x) => ({ t: x, h: 12, head: false }));
+A.convDlg = async (title, f, o = {}) => {
+  const r = await A.modal({
+    title, body: `<label class="lbl" style="margin-top:0">File name</label><input id="cn" value="${esc(baseOf(f.name))}">
+    ${o.fmt ? '<label class="lbl">Format</label><div class="seg" id="cf"><button data-v="txt" class="on">Text (.txt)</button><button data-v="md">Markdown (.md)</button></div>' : ''}
+    <label class="lbl">Text source</label><div class="seg" id="cm"><button data-v="auto" class="on">Auto</button><button data-v="text">File text</button><button data-v="ocr">Scan (OCR)</button></div>
+    <div style="font-size:12px;color:var(--tx2);margin-top:6px;line-height:1.6">Auto reads the file's own text and runs OCR only on scanned or garbled pages.</div>
+    <label class="lbl">OCR engine</label><div class="seg" id="ce"><button data-v="local" class="on">Offline</button><button data-v="ai">AI (API key)</button></div>
+    <button class="addbtn" id="caic">${A.ic('ai')}AI settings</button>
+    <label class="lbl">OCR language</label><div class="seg" id="cl"><button data-v="ara+eng" class="on">Arabic + English</button><button data-v="ara">Arabic</button><button data-v="eng">English</button></div>
+    <label class="lbl">Arabic order in file text</label><div class="seg" id="ca"><button data-v="auto" class="on">Auto</button><button data-v="off">Keep</button><button data-v="rev">Reverse letters</button></div>`,
+    actions: [{ k: 'c', label: 'Cancel' }, { k: 'ok', label: 'Save', p: 1 }],
+    onOpen: (m) => { ['#cm', '#ce', '#cl', '#ca', '#cf'].forEach((i) => $(i, m) && segSet(m, i)); $('#caic', m).onclick = () => A.aiDlg(); },
+    collect: (m) => ({ n: $('#cn', m).value.trim(), fmt: $('#cf .on', m) ? $('#cf .on', m).dataset.v : null, mode: $('#cm .on', m).dataset.v, engine: $('#ce .on', m).dataset.v, langs: $('#cl .on', m).dataset.v, ar: $('#ca .on', m).dataset.v }),
+  });
+  if (r.k !== 'ok') return null; const v = r.v;
+  if (v.mode !== 'text' && v.engine === 'ai' && !A.ai.get().key) { if (!(await A.aiDlg())) { A.toast('AI needs an API key — use the Offline engine or add a key'); return null; } }
+  return v;
+};
+A.extractText = async (pdf, o, b) => {
+  const N = pdf.numPages, pages = [];
+  for (let n = 1; n <= N; n++) {
+    if (b.cancelled) return null; b.set(`Page ${n} of ${N}`, (n - 1) / N); let paras = [], src = 'text', md = '';
+    if (o.mode !== 'ocr') paras = await A.pageParas(pdf, n);
+    const txt = paras.map((p) => p.t).join(' ');
+    if (o.mode === 'ocr' || (o.mode === 'auto' && (!txt.trim() || A.isGarbled(txt)))) {
+      const c = await A.pageCanvas(pdf, n, o.engine === 'ai' ? 1800 : 2000);
+      try {
+        if (o.engine === 'ai') { b.set(`AI reading page ${n} of ${N}`, (n - 1) / N); md = await A.aiOcr(c); paras = A.mdToParas(md); src = 'ai'; }
+        else { b.set(`OCR page ${n} of ${N}`, (n - 1) / N); paras = ocrParas(await A.ocrLocal(c, o.langs)); src = 'ocr'; }
+      } finally { c.width = c.height = 0; }
+    }
+    pages.push({ paras, src, md });
+  }
+  const all = pages.filter((p) => p.src === 'text').map((p) => p.paras.map((x) => x.t.normalize('NFKC')).join(' ')).join(' ');
+  const rev = o.ar === 'rev' || (o.ar === 'auto' && looksReversed(all));
+  if (o.ar !== 'off') pages.forEach((pg) => { if (pg.src === 'text') pg.paras.forEach((p) => (p.t = fixAr(p.t, rev))); });
+  return { pages, rev, ocr: pages.filter((p) => p.src !== 'text').length };
+};
+const textOut = async (f, title, fmt) => {
+  const o = await A.convDlg(title, f, { fmt }); if (!o) return; const b = A.busy('Reading…', true);
+  try {
+    const op = await A.openPw(f.blob); if (!op) { b.done(); return; } let res;
+    try { res = await A.extractText(op.pdf, o, b); } catch (e) { b.done(); console.error(e); return A.toast('Recognition failed: ' + (e.message || e), 5000); }
+    if (!res) { b.done(); return A.toast('Cancelled'); } const { pages } = res;
+    if (!pages.some((p) => p.paras.length)) { b.done(); return A.toast('No text could be found'); }
+    b.set('Building file…', 0.97); let blob, name; const base = (o.n || baseOf(f.name)).replace(/\.(docx|txt|md)$/i, '');
+    if (!fmt) {
+      const { Document, Packer, Paragraph, TextRun, AlignmentType } = docx; const kids = [];
+      pages.forEach((pg, pi) => {
+        if (!pg.paras.length) { kids.push(new Paragraph({ pageBreakBefore: pi > 0, children: [new TextRun({ text: `[Page ${pi + 1}: no text found]`, italics: true, color: '888888' })] })); return; }
+        pg.paras.forEach((p, j) => { const rtl = isRTL(p.t); kids.push(new Paragraph({ pageBreakBefore: pi > 0 && j === 0, bidirectional: rtl, alignment: AlignmentType.START, spacing: { after: 160 }, children: [new TextRun({ text: p.t, bold: p.head, rightToLeft: rtl, size: Math.round(clamp(p.h, 9, p.head ? 30 : 16) * 2) })] })); });
+      });
+      blob = new Blob([await Packer.toBlob(new Document({ sections: [{ children: kids }] }))], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }); name = base + '.docx';
+    } else if (o.fmt === 'md') {
+      blob = new Blob(['\uFEFF' + pages.map((pg) => (pg.src === 'ai' && pg.md ? pg.md.trim() : pg.paras.map((p) => (p.head ? '## ' + p.t : p.t)).join('\n\n'))).join('\n\n---\n\n')], { type: 'text/markdown;charset=utf-8' }); name = base + '.md';
+    } else { blob = new Blob(['\uFEFF' + pages.map((pg) => pg.paras.map((p) => p.t).join('\n\n')).join('\n\n')], { type: 'text/plain;charset=utf-8' }); name = base + '.txt'; }
+    b.done(); await A.saveBlob(name, blob); A.toast(`Saved “${name}” to My Files${res.ocr ? ` · ${res.ocr} page(s) read with OCR/AI` : ''}${res.rev ? ' · Arabic order fixed' : ''}`, 4200);
+  } finally { b.done(); A.ocrDone(); }
+};
+
 const guard = (fn) => async (...a) => { try { await fn(...a); } catch (e) { console.error(e); A.toast('Something went wrong'); } };
 const segSet = (o, id, attr) => ($(id, o).onclick = (e) => { const x = e.target.closest('button'); if (x) $$(id + ' button', o).forEach((y) => y.classList.toggle('on', y === x)); });
 
 A.tools = {
-  /* ----- PDF → Word ----- */
-  pdf2word: guard(async (pre) => {
-    const f = pre || (await A.pickPdfs(false, 'Choose a PDF'))[0]; if (!f) return;
-    const r = await A.modal({ title: 'PDF to Word', body: `<label class="lbl" style="margin-top:0">File name</label><input id="wn" value="${esc(baseOf(f.name))}"><label class="lbl">Arabic text direction</label><div class="seg" id="ar"><button data-m="auto" class="on">Auto-detect</button><button data-m="off">Keep as is</button><button data-m="rev">Reverse letters</button></div><div style="font-size:12px;color:var(--tx2);margin-top:8px;line-height:1.6">If Arabic comes out reversed in the Word file, try “Reverse letters”.</div>`, actions: [{ k: 'c', label: 'Cancel' }, { k: 'ok', label: 'Save', p: 1 }], onOpen: (o) => segSet(o, '#ar'), collect: (o) => ({ n: $('#wn', o).value, m: $('#ar .on', o).dataset.m }) });
-    if (r.k !== 'ok') return; const b = A.busy('Converting…');
-    try {
-      const o = await A.openPw(f.blob); if (!o) { b.done(); return; } const pdf = o.pdf; const pages = [];
-      for (let n = 1; n <= pdf.numPages; n++) { b.set(`Reading page ${n} of ${pdf.numPages}`, (n / pdf.numPages) * 0.8); pages.push(await A.pageParas(pdf, n)); }
-      const all = pages.flat().map((p) => p.t.normalize('NFKC')).join(' '); const rev = r.v.m === 'rev' || (r.v.m === 'auto' && looksReversed(all));
-      const { Document, Packer, Paragraph, TextRun, AlignmentType } = docx; const kids = []; let any = false;
-      pages.forEach((ps, pi) => {
-        if (!ps.length) { kids.push(new Paragraph({ pageBreakBefore: pi > 0, children: [new TextRun({ text: `[Page ${pi + 1}: no extractable text]`, italics: true, color: '888888' })] })); return; } any = true;
-        ps.forEach((p, j) => { const t = r.v.m === 'off' ? p.t : fixAr(p.t, rev); const rtl = isRTL(t); kids.push(new Paragraph({ pageBreakBefore: pi > 0 && j === 0, bidirectional: rtl, alignment: AlignmentType.START, spacing: { after: 160 }, children: [new TextRun({ text: t, bold: p.head, rightToLeft: rtl, size: Math.round(clamp(p.h, 9, p.head ? 30 : 16) * 2) })] })); });
-      });
-      if (!any) { b.done(); return A.toast('No extractable text (the file looks like a scan)'); }
-      b.set('Building Word file…', 0.95); const blob = await Packer.toBlob(new Document({ sections: [{ children: kids }] })); b.done();
-      const name = (r.v.n.trim() || baseOf(f.name)).replace(/\.docx$/i, '') + '.docx'; await A.saveBlob(name, new Blob([blob], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })); A.toast(`Saved “${name}” to My Files${rev ? ' (Arabic order fixed)' : ''}`, 3200);
-    } finally { b.done(); }
-  }),
+  /* ----- PDF → Word (with OCR for scans / garbled text) ----- */
+  pdf2word: guard(async (pre) => { const f = pre || (await A.pickPdfs(false, 'Choose a PDF'))[0]; if (f) await textOut(f, 'PDF to Word', null); }),
+  /* ----- PDF → TXT / Markdown ----- */
+  pdf2text: guard(async (pre) => { const f = pre || (await A.pickPdfs(false, 'Choose a PDF'))[0]; if (f) await textOut(f, 'PDF to Text / Markdown', true); }),
   /* ----- Word → PDF ----- */
   word2pdf: guard(async () => {
     const [f] = await A.pickLib({ multiple: false, title: 'Choose a Word file (.docx)', exts: ['docx'], accept: '.docx' }); if (!f) return; const b = A.busy('Converting…');
@@ -125,7 +172,7 @@ A.tools = {
   }),
   /* ----- TXT file → PDF ----- */
   txt2pdf: guard(async () => {
-    const fs = await A.pickLib({ multiple: true, title: 'Choose TXT files', exts: ['txt'], accept: '.txt,text/plain' }); if (!fs.length) return; const b = A.busy('Converting…'); let n = 0;
+    const fs = await A.pickLib({ multiple: true, title: 'Choose TXT files', exts: ['txt', 'md'], accept: '.txt,.md,text/plain,text/markdown' }); if (!fs.length) return; const b = A.busy('Converting…'); let n = 0;
     try {
       for (const [i, f] of fs.entries()) {
         b.set(`${f.name} (${i + 1}/${fs.length})`, i / fs.length); const ab = await f.blob.arrayBuffer(); let t = new TextDecoder('utf-8').decode(ab); if (t.includes('\uFFFD')) t = new TextDecoder('windows-1256').decode(ab);
@@ -176,37 +223,48 @@ A.tools = {
       b.done(); const name = pdfName(r.name, 'merged'); await A.saveBlob(name, new Blob([res.bytes], { type: 'application/pdf' })); A.toast(`Saved “${name}” to My Files${res.fixed ? ` (${res.fixed} blank page(s) repaired)` : ''}`, 3200);
     } finally { b.done(); }
   }),
-  /* ----- Split: pick pages from one or more files, each file becomes its own PDF ----- */
+  /* ----- Split: choose a file → choose its pages → add more result files → split everything ----- */
   split: guard(async (pre) => {
-    const jobs = []; const el = document.createElement('div'); el.className = 'screen';
-    el.innerHTML = `<header class="top"><button class="ib" data-s="back">${A.ic('back')}</button><div class="ttl" style="font-size:18px">Split PDF</div><button class="ib" data-s="add">${A.ic('plus')}</button><button class="btn p" data-s="go" style="flex:none;min-width:0;padding:10px 20px;margin-right:4px">Split</button></header><div class="sbody"></div>`;
-    const body = $('.sbody', el);
-    const io = new IntersectionObserver((es) => es.forEach(async (e) => { if (!e.isIntersecting) return; const cv = e.target; io.unobserve(cv); const j = jobs.find((x) => x.id === cv.dataset.j); if (j) A.paintThumb(cv, await j.thumb(+cv.dataset.src)); }), { root: body, rootMargin: '300px' });
+    const jobs = [], opened = [];
+    const el = document.createElement('div'); el.className = 'screen';
+    el.innerHTML = `<header class="top"><button class="ib" data-s="back">${A.ic('back')}</button><div class="ttl" style="font-size:18px">Split PDF</div><button class="ib" data-s="add" style="color:var(--pri)">${A.ic('plus')}</button></header><div class="sbody" style="padding-bottom:110px"></div><div style="position:absolute;left:0;right:0;bottom:0;padding:12px 14px calc(12px + env(safe-area-inset-bottom));background:var(--bg)"><button class="btn p" data-s="go" style="width:100%;padding:15px">Split</button></div>`;
+    const body = $('.sbody', el), goBtn = $('[data-s=go]', el);
     const render = () => {
-      body.innerHTML = jobs.length ? jobs.map((j) => `<div class="card" data-j="${j.id}"><div class="ch"><span class="cn">${esc(j.out)}</span><button class="ib" data-s="rename">${A.ic('edit')}</button><button class="ib" data-s="remove" style="color:var(--danger)">${A.ic('minus')}</button></div><div class="cs" style="display:flex;align-items:center;gap:8px;justify-content:space-between"><span>From ${esc(j.name)} · <span data-c>0</span> of ${j.n} selected</span><button class="chip" data-s="all">Select all</button></div><div class="mini">${Array.from({ length: j.n }, (_, i) => `<div class="pt" data-i="${i}"><canvas data-src="${i}" data-j="${j.id}"></canvas><span class="n">${i + 1}</span><span class="ck">${A.ic('check')}</span></div>`).join('')}</div></div>`).join('') : `<div class="empty">${A.ic('split')}<br>Tap <b>+</b> to choose a PDF</div>`;
-      $$('.card', body).forEach((c) => { const j = jobs.find((x) => x.id === c.dataset.j); upd(c, j); }); $$('canvas', body).forEach((c) => io.observe(c));
+      body.innerHTML = jobs.length ? jobs.map((j, i) => `<div class="card" data-j="${j.id}"><div class="ch"><span class="badge b-pdf" style="width:38px;height:38px;border-radius:12px;margin-right:6px">PDF</span><span class="cn">${esc(j.name)}</span><button class="ib" data-s="rename">${A.ic('edit')}</button><button class="ib" data-s="pick">${A.ic('pages')}</button><button class="ib" data-s="remove" style="color:var(--danger)">${A.ic('trash')}</button></div><div class="cs">${j.sel.size} page(s) from ${esc(j.src.name)}</div></div>`).join('') : `<div class="empty">${A.ic('split')}<br>Tap <b>+</b> to choose a file and its pages</div>`;
+      goBtn.textContent = jobs.length ? `Split ${jobs.length} file${jobs.length > 1 ? 's' : ''}` : 'Split'; goBtn.disabled = !jobs.length; goBtn.style.opacity = jobs.length ? 1 : 0.5;
     };
-    const upd = (c, j) => { $$('.pt', c).forEach((p) => p.classList.toggle('sel', j.sel.has(+p.dataset.i))); $('[data-c]', c).textContent = j.sel.size; $('[data-s=all]', c).textContent = j.sel.size === j.n ? 'Deselect all' : 'Select all'; };
-    const addFiles = async (fs) => {
-      for (const f of fs) {
-        let pdf; try { pdf = await A.loadPdfJs(f.blob); } catch (e) { A.toast(`${f.name}: cannot open (protected?)`); continue; }
-        jobs.push({ id: uid().slice(0, 8), name: f.name, out: pdfName(baseOf(f.name) + '-split'), n: pdf.numPages, pdf, bytes: new Uint8Array(await f.blob.arrayBuffer()), sel: new Set(), thumb: A.thumbCache(pdf, 110) });
-      } render();
+    const pickPages = (src, init, title) => new Promise((resolve) => {
+      const sel = new Set(init || []); let done = false; const pe = document.createElement('div'); pe.className = 'screen';
+      pe.innerHTML = `<header class="top"><button class="ib" data-p="back">${A.ic('back')}</button><div class="ttl" style="font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(title)}</div><button class="btn p" data-p="done" style="flex:none;min-width:0;padding:10px 20px">Done</button></header><div class="sbody" style="padding-top:0"><div style="display:flex;align-items:center;gap:10px;padding:4px 4px 8px"><button class="chip" data-p="all">Select all</button><span class="cs" data-p="cnt" style="color:var(--tx2);font-size:13px"></span></div><div class="pgrid">${Array.from({ length: src.n }, (_, i) => `<div class="pt" data-i="${i}"><canvas data-i="${i}"></canvas><span class="n">${i + 1}</span><span class="ck">${A.ic('check')}</span></div>`).join('')}</div></div>`;
+      const io = new IntersectionObserver((es) => es.forEach(async (e) => { if (!e.isIntersecting) return; const cv = e.target; io.unobserve(cv); A.paintThumb(cv, await src.thumb(+cv.dataset.i)); }), { root: $('.sbody', pe), rootMargin: '300px' });
+      const upd = () => { $$('.pt', pe).forEach((t) => t.classList.toggle('sel', sel.has(+t.dataset.i))); $('[data-p=cnt]', pe).textContent = `${sel.size} of ${src.n} selected`; $('[data-p=all]', pe).textContent = sel.size === src.n ? 'Deselect all' : 'Select all'; };
+      pe.addEventListener('click', (e) => {
+        const t = e.target.closest('.pt'); if (t) { const i = +t.dataset.i; sel.has(i) ? sel.delete(i) : sel.add(i); return upd(); }
+        const b = e.target.closest('[data-p]'); if (!b) return; const a = b.dataset.p;
+        if (a === 'back') A.pop(); else if (a === 'all') { if (sel.size === src.n) sel.clear(); else for (let i = 0; i < src.n; i++) sel.add(i); upd(); }
+        else if (a === 'done') { if (!sel.size) return A.toast('Select at least one page'); done = true; resolve(new Set(sel)); A.pop(); }
+      });
+      A.push(pe, () => { io.disconnect(); if (!done) resolve(null); }); $$('canvas', pe).forEach((c) => io.observe(c)); upd();
+    });
+    const openSrc = async (f) => { let pdf; try { pdf = await A.loadPdfJs(f.blob); } catch (e) { A.toast(`${f.name}: cannot open (protected?)`); return null; } opened.push(pdf); return { name: f.name, blob: f.blob, pdf, n: pdf.numPages, bytes: new Uint8Array(await f.blob.arrayBuffer()), thumb: A.thumbCache(pdf, 110) }; };
+    const addFlow = async (file) => {
+      const f = file || (await A.pickPdfs(false, 'Choose a PDF to take pages from'))[0]; if (!f) return false; const src = await openSrc(f); if (!src) return false;
+      const sel = await pickPages(src, [], `Select pages — ${f.name}`); if (!sel) return false;
+      jobs.push({ id: uid().slice(0, 8), name: pdfName(baseOf(f.name) + '-part' + (jobs.length + 1)), src, sel }); render(); return true;
     };
     el.addEventListener('click', async (e) => {
-      const b = e.target.closest('[data-s]'), tile = e.target.closest('.pt'), card = e.target.closest('.card'), j = card && jobs.find((x) => x.id === card.dataset.j);
-      if (tile && j) { const i = +tile.dataset.i; j.sel.has(i) ? j.sel.delete(i) : j.sel.add(i); return upd(card, j); }
-      if (!b) return; const a = b.dataset.s;
-      if (a === 'back') A.pop(); else if (a === 'add') await addFiles(await A.pickPdfs(true, 'Choose PDFs to split'));
-      else if (a === 'all' && j) { if (j.sel.size === j.n) j.sel.clear(); else for (let i = 0; i < j.n; i++) j.sel.add(i); upd(card, j); }
-      else if (a === 'rename' && j) { const n = await A.renameDlg(j.out, 'Output file name'); if (n) { j.out = n; $('.cn', card).textContent = j.out; } }
-      else if (a === 'remove' && j) { jobs.splice(jobs.indexOf(j), 1); j.pdf.destroy(); render(); }
-      else if (a === 'go') {
-        const todo = jobs.filter((x) => x.sel.size); if (!todo.length) return A.toast('Select the pages you want first'); const bz = A.busy('Splitting…');
-        try { for (const [k, x] of todo.entries()) { bz.set(`${x.out} (${k + 1}/${todo.length})`, k / todo.length); const items = [...x.sel].sort((p, q) => p - q).map((i) => ({ src: i, rot: 0 })); await A.saveBlob(x.out, new Blob([await A.rebuildPdf(x.bytes, items)], { type: 'application/pdf' })); } bz.done(); A.toast(`${todo.length} file(s) saved to My Files`, 3000); A.pop(); } catch (err) { bz.done(); console.error(err); A.toast('Splitting failed'); }
+      const b = e.target.closest('[data-s]'); if (!b) return; const a = b.dataset.s, card = e.target.closest('.card'), j = card && jobs.find((x) => x.id === card.dataset.j);
+      if (a === 'back') A.pop(); else if (a === 'add') await addFlow();
+      else if (a === 'rename' && j) { const n = await A.renameDlg(j.name, 'Output file name'); if (n) { j.name = n; render(); } }
+      else if (a === 'pick' && j) { const sel = await pickPages(j.src, [...j.sel], `Select pages — ${j.src.name}`); if (sel) { j.sel = sel; render(); } }
+      else if (a === 'remove' && j) { jobs.splice(jobs.indexOf(j), 1); render(); }
+      else if (a === 'go' && jobs.length) {
+        const bz = A.busy('Splitting…');
+        try { for (const [k, x] of jobs.entries()) { bz.set(`${x.name} (${k + 1}/${jobs.length})`, k / jobs.length); const items = [...x.sel].sort((p, q) => p - q).map((i) => ({ src: i, rot: 0 })); await A.saveBlob(x.name, new Blob([await A.rebuildPdf(x.src.bytes, items)], { type: 'application/pdf' })); } bz.done(); A.toast(`${jobs.length} file(s) saved to My Files`, 3000); A.pop(); } catch (err) { bz.done(); console.error(err); A.toast('Splitting failed'); }
       }
     });
-    A.push(el, () => { io.disconnect(); jobs.forEach((j) => j.pdf.destroy()); }); render(); if (pre) await addFiles([pre]); else await addFiles(await A.pickPdfs(true, 'Choose PDFs to split'));
+    A.push(el, () => opened.forEach((p) => p.destroy())); render();
+    if (!(await addFlow(pre)) && !jobs.length) A.pop();
   }),
   /* ----- Compress ----- */
   compress: guard(async (pre) => {

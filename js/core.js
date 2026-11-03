@@ -2,7 +2,7 @@
 /* ===== Core utilities — no network access anywhere in this code ===== */
 const A = (window.A = {});
 /* App version: a single number. Increase it by 1 on every update round. */
-A.VERSION = 2;
+A.VERSION = 3;
 const $ = (s, e = document) => e.querySelector(s);
 const $$ = (s, e = document) => [...e.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -54,7 +54,7 @@ const IC = {
   grip: '<circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/>',
   home: '<path d="M4 11l8-7 8 7v9H4z"/>', wake: '<path d="M12 3a6 6 0 00-3.5 10.9V17h7v-3.1A6 6 0 0012 3zM9 20h6"/>', two: '<rect x="3" y="5" width="8" height="14" rx="1.5"/><rect x="13" y="5" width="8" height="14" rx="1.5"/>',
   rev: '<path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/>', vert: '<path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4"/>', horiz: '<path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4"/>', snap: '<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M3 9v6M21 9v6"/>',
-  words: '<path d="M4 7h16M4 12h10M4 17h13"/>', hash: '<path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16"/>', drop: '<path d="M12 3s6 6.5 6 11a6 6 0 01-12 0c0-4.5 6-11 6-11z"/>', device: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>', refresh: '<path d="M20 11a8 8 0 00-14.5-4M4 4v4h4M4 13a8 8 0 0014.5 4M20 20v-4h-4"/>', open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/>',
+  words: '<path d="M4 7h16M4 12h10M4 17h13"/>', line: '<path d="M4 19L20 5"/>', ai: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"/>', hash: '<path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16"/>', drop: '<path d="M12 3s6 6.5 6 11a6 6 0 01-12 0c0-4.5 6-11 6-11z"/>', device: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>', refresh: '<path d="M20 11a8 8 0 00-14.5-4M4 4v4h4M4 13a8 8 0 0014.5 4M20 20v-4h-4"/>', open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/>',
 };
 A.ic = (n, extra = '') => `<svg class="i" viewBox="0 0 24 24" ${extra}>${IC[n] || ''}</svg>`;
 
@@ -110,10 +110,11 @@ A.sheet = (title, items) =>
     document.body.appendChild(o);
     o.addEventListener('click', (e) => { const b = e.target.closest('[data-k]'); if (b || e.target === o) { o.remove(); res(b ? b.dataset.k : null); } });
   });
-A.busy = (msg = 'Working…') => {
-  const o = document.createElement('div'); o.className = 'busy';
-  o.innerHTML = `<div><div class="spin"></div><div class="bm">${esc(msg)}</div><div class="pbar"><i></i></div></div>`; document.body.appendChild(o);
-  return { set: (m, pct) => { $('.bm', o).textContent = m; if (pct != null) $('.pbar i', o).style.width = Math.round(pct * 100) + '%'; }, done: () => o.remove() };
+A.busy = (msg = 'Working…', cancellable = false) => {
+  const o = document.createElement('div'); o.className = 'busy'; let cancelled = false;
+  o.innerHTML = `<div><div class="spin"></div><div class="bm">${esc(msg)}</div><div class="pbar"><i></i></div>${cancellable ? '<button class="btn" data-cx style="margin-top:14px;width:100%">Cancel</button>' : ''}</div>`; document.body.appendChild(o);
+  if (cancellable) $('[data-cx]', o).onclick = () => { cancelled = true; $('.bm', o).textContent = 'Cancelling…'; };
+  return { set: (m, pct) => { $('.bm', o).textContent = cancelled ? 'Cancelling…' : m; if (pct != null) $('.pbar i', o).style.width = Math.round(pct * 100) + '%'; }, done: () => o.remove(), get cancelled() { return cancelled; } };
 };
 
 /* ---------- Screen stack (Android back button closes the top screen) ---------- */
