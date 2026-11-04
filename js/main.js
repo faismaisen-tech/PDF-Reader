@@ -25,6 +25,14 @@ if ('serviceWorker' in navigator) {
   const had = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', async () => { if (!had) return; if (A.V && A.V.dirty) return A.toast('Update installed — it applies next time you open the app', 4200); if (await A.confirm('A new version of the app is ready. Reload now?', 'Reload')) location.reload(); });
 }
+// look for a new version of the app now and then (on start, and whenever the app comes back to the screen)
+A.checkUpdate = async (manual) => {
+  if (!('serviceWorker' in navigator)) return; const r = await navigator.serviceWorker.getRegistration(); if (!r) return manual && A.toast('Offline mode is not active yet — reload the page once');
+  try { await r.update(); } catch (e) { return manual && A.toast('Could not check for updates'); }
+  if (manual) A.toast(r.installing || r.waiting ? 'New version found — downloading it now. Reopen the app when asked.' : `You already have the latest version (${A.VERSION})`, 4200);
+};
+window.addEventListener('load', () => setTimeout(() => A.checkUpdate(false), 3000));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') A.checkUpdate(false); });
 // pick up newly downloaded files in linked device folders whenever the app comes back to the screen
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && A.lib.src && A.lib.src.length && Date.now() - (A.lib.lastScan || 0) > 15000) { A.lib.lastScan = Date.now(); A.lib.refreshDev(); } });
 

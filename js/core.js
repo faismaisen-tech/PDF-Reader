@@ -2,7 +2,7 @@
 /* ===== Core utilities — no network access anywhere in this code ===== */
 const A = (window.A = {});
 /* App version: a single number. Increase it by 1 on every update round. */
-A.VERSION = 3;
+A.VERSION = 5;
 const $ = (s, e = document) => e.querySelector(s);
 const $$ = (s, e = document) => [...e.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -59,7 +59,7 @@ const IC = {
 A.ic = (n, extra = '') => `<svg class="i" viewBox="0 0 24 24" ${extra}>${IC[n] || ''}</svg>`;
 
 /* ---------- Settings ---------- */
-A.set = Object.assign({ theme: 'auto', dir: 'v', snap: false, rev: false, read: 'day', keepOn: false, sort: 'date', view: 'list' }, JSON.parse(localStorage.getItem('prs2') || '{}'));
+A.set = Object.assign({ theme: 'auto', dir: 'v', snap: false, rev: false, cover: false, read: 'day', keepOn: false, sort: 'date', view: 'list' }, JSON.parse(localStorage.getItem('prs2') || '{}'));
 A.saveSet = () => localStorage.setItem('prs2', JSON.stringify(A.set));
 A.applyTheme = () => {
   const dark = A.set.theme === 'dark' || (A.set.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);

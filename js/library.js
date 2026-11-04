@@ -5,6 +5,8 @@ const TYPES = { pdf: 'pdf', doc: 'word', docx: 'word', xls: 'excel', xlsx: 'exce
 const TLAB = { pdf: 'PDF', word: 'DOC', excel: 'XLS', ppt: 'PPT', txt: 'TXT' };
 A.typeOf = (ext) => TYPES[ext] || null;
 A.ACCEPT = '.pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.md';
+/* The Android app (APK) is hosted next to the site. Put the file at downloads/pdf-reader.apk in the repository (or put a full link here). */
+A.APK_URL = 'downloads/pdf-reader.apk';
 A.devSupported = () => 'showDirectoryPicker' in window && 'showOpenFilePicker' in window;
 
 L.reload = async () => { L.files = await A.db.all('files'); L.folders = await A.db.all('folders'); L.src = await A.db.all('devsrc'); L.dev = await A.db.all('devfiles'); };
@@ -186,10 +188,11 @@ L.rSet = async (c) => {
     <button class="row" data-a="theme">${A.ic('moon')}<span class="g">Appearance<small>${th}</small></span></button>
     <button class="row" data-a="aisettings">${A.ic('ai')}<span class="g">AI text recognition<small>Optional API key for scanned books</small></span></button>
     <button class="row" data-a="devsettings">${A.ic('device')}<span class="g">Device folders<small>${L.src.length} linked · ${L.dev.length} files found</small></span></button>
+    ${A.isInstalled() ? '' : `<button class="row" data-a="apk">${A.ic('download')}<span class="g">Download the Android app (APK)<small>Phone version — install it from the downloaded file</small></span></button>`}
     ${A.installEvt ? `<button class="row" data-a="install">${A.ic('download')}<span class="g">Install app on home screen</span></button>` : ''}</div>
     <div class="sec"><div class="row">${A.ic('info')}<span class="g">Storage<small id="stg">…</small></span></div>
     <div class="row">${A.ic('lock')}<span class="g">Privacy<small>Works fully offline. Your files stay on this device.</small></span></div>
-    <div class="row">${A.ic('file')}<span class="g">Version ${A.VERSION}</span></div></div>`;
+    <button class="row" data-a="upd">${A.ic('refresh')}<span class="g">Version ${A.VERSION}<small>Tap to check for a new version</small></span></button></div>`;
   if (navigator.storage && navigator.storage.estimate) { const e = await navigator.storage.estimate(); const s = $('#stg'); if (s) s.textContent = `${fmtSize(e.usage || 0)} used of ${fmtSize(e.quota || 0)}${A.persisted ? ' · protected from auto-cleanup' : ''}`; }
 };
 
@@ -224,6 +227,8 @@ L.click = async (e) => {
     case 'grant': return L.grant();
     case 'rmsrc': return L.removeSrc(id);
     case 'aisettings': return A.aiDlg();
+    case 'upd': return A.checkUpdate(true);
+    case 'apk': return A.getApk();
     case 'devsettings': L.tab = 'files'; L.filter = 'device'; return L.render();
     case 'restore': r.del = 0; return L.save(r);
     case 'kill': if (await A.confirm('Delete this file permanently?', 'Delete', true)) { await A.db.del('files', id); L.files = L.files.filter((f) => f !== r); L.render(); } return;
@@ -299,4 +304,13 @@ L.selAction = async (a) => {
     if (k === 'move') { const to = await A.sheet('Move to', [{ k: '_root', label: 'Home', icon: 'home' }, ...L.folders.map((f) => ({ k: f.id, label: f.name, icon: 'folder' }))]); if (!to) return; lib.forEach((r) => (r.folder = to === '_root' ? null : to)); await A.db.putMany('files', lib); }
     L.selMode = false; L.sel.clear(); L.render();
   }
+};
+
+/* Android app download (hidden once the app is installed / running as the Android app) */
+A.isInstalled = () => matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || navigator.standalone === true;
+A.getApk = async () => {
+  let ok = false; try { ok = (await fetch(A.APK_URL, { method: 'HEAD', cache: 'no-store' })).ok; } catch (e) { ok = false; }
+  if (!ok) return A.toast('The Android app is not available yet — please check again later.', 3800);
+  const a = document.createElement('a'); a.href = A.APK_URL; a.download = 'pdf-reader.apk'; document.body.appendChild(a); a.click(); a.remove();
+  A.toast('Downloading… open the file afterwards to install. Android may ask you to allow installs from your browser.', 6000);
 };

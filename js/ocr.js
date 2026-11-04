@@ -2,8 +2,8 @@
 /* ===== Text recognition: offline OCR (Tesseract) + optional AI OCR (your own API key) =====
    The app never uses the internet unless you choose "AI" as the engine and save an API key. */
 
-const AIDEF = { gemini: { name: 'Google Gemini', model: 'gemini-3.5-flash', host: 'generativelanguage.googleapis.com' }, claude: { name: 'Anthropic Claude', model: 'claude-sonnet-5-5', host: 'api.anthropic.com' } };
-A.ai = { get: () => Object.assign({ provider: 'gemini', key: '', model: '' }, JSON.parse(localStorage.getItem('ai3') || '{}')), set: (v) => localStorage.setItem('ai3', JSON.stringify(v)) };
+const AIDEF = { openai: { name: 'OpenAI (ChatGPT)', model: 'gpt-5.5', host: 'api.openai.com' }, gemini: { name: 'Google Gemini', model: 'gemini-3.5-flash', host: 'generativelanguage.googleapis.com' }, claude: { name: 'Anthropic Claude', model: 'claude-sonnet-5-5', host: 'api.anthropic.com' } };
+A.ai = { get: () => Object.assign({ provider: 'openai', key: '', model: '' }, JSON.parse(localStorage.getItem('ai3') || '{}')), set: (v) => localStorage.setItem('ai3', JSON.stringify(v)) };
 const AI_PROMPT = 'Transcribe all the text on this page exactly as written, in its original language. Keep paragraph breaks. Use Markdown: "#" for titles/headings, "-" for lists, and Markdown tables where the page has tables. Arabic must stay in its correct logical right-to-left order. Do not translate, summarize or add any commentary. If the page contains no text, return nothing.';
 
 A.aiDlg = async () => {
@@ -33,6 +33,11 @@ A.aiOcr = async (canvas) => {
   const cfg = A.ai.get(); if (!cfg.key) throw new Error('No API key saved'); const model = cfg.model || AIDEF[cfg.provider].model, data = toB64(canvas);
   const call = async () => {
     let res, j;
+    if (cfg.provider === 'openai') {
+      res = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfg.key }, body: JSON.stringify({ model, messages: [{ role: 'user', content: [{ type: 'text', text: AI_PROMPT }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + data } }] }] }) });
+      j = await res.json().catch(() => ({})); if (!res.ok) throw Object.assign(new Error((j.error && j.error.message) || 'Request failed (' + res.status + ')'), { status: res.status });
+      return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+    }
     if (cfg.provider === 'claude') {
       res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify({ model, max_tokens: 8000, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } }, { type: 'text', text: AI_PROMPT }] }] }) });
       j = await res.json().catch(() => ({})); if (!res.ok) throw Object.assign(new Error((j.error && j.error.message) || 'Request failed (' + res.status + ')'), { status: res.status });

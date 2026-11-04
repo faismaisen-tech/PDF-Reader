@@ -1,9 +1,9 @@
 /* Service Worker: كل شيء يتخزّن عند أول تشغيل ثم يعمل التطبيق بدون إنترنت إطلاقاً.
    لا تعدّل القائمة يدوياً: شغّل  node build.js  بعد أي تغيير في الملفات. */
-const VERSION = 'v6146dd269e';
+const VERSION = 'v3f4e4d8fe6';
 const CACHE = 'pdfreader-' + VERSION;
 const SHARE = 'pdfreader-share';
-const AI_HOSTS = ['generativelanguage.googleapis.com', 'api.anthropic.com'];
+const AI_HOSTS = ['generativelanguage.googleapis.com', 'api.anthropic.com', 'api.openai.com'];
 const PRECACHE = [/*LIST_START*/
   './',
   "./css/app.css",
@@ -225,7 +225,8 @@ const PRECACHE = [/*LIST_START*/
   /*LIST_END*/];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
+  // cache:'reload' = always fetch fresh copies from the server (never the browser's old HTTP cache), so an update can't store stale files
+  e.waitUntil(caches.open(CACHE).then((c) => Promise.all(PRECACHE.map((u) => c.add(new Request(u, { cache: 'reload' }))))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

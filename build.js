@@ -2,7 +2,7 @@
 // يكتب قائمة الملفات في sw.js ويحدّث رقم الإصدار حتى يتحدّث الكاش عند كل تعديل.
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const root = __dirname;
-const skip = new Set(['sw.js', 'build.js', 'README.md', '.git', '.github', 'node_modules', 'package.json', 'package-lock.json', '.nojekyll']);
+const skip = new Set(['downloads', 'sw.js', 'build.js', 'README.md', '.git', '.github', 'node_modules', 'package.json', 'package-lock.json', '.nojekyll']);
 const list = [];
 (function walk(d) {
   for (const n of fs.readdirSync(d).sort()) {

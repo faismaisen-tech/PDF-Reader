@@ -77,7 +77,7 @@ A.viewDoc = async (rec, blob) => {
 
 /* ======================= PDF viewer ======================= */
 A.viewPdf = async (rec, blob, o = {}) => {
-  const V = (A.V = { rec, blob, zoom: 1, dir: A.set.dir, snap: A.set.snap, rev: A.set.rev, spread: false, rot: 0, cur: 1, edit: false, ann: {}, tasks: {}, texts: {}, hits: [], hi: -1, els: [], sz: [], vps: [], protectedDoc: false });
+  const V = (A.V = { rec, blob, zoom: 1, dir: A.set.dir, snap: A.set.snap, rev: A.set.rev, spread: false, cover: A.set.cover, rot: 0, cur: 1, edit: false, ann: {}, tasks: {}, texts: {}, hits: [], hi: -1, els: [], sz: [], vps: [], protectedDoc: false });
   const el = (V.el = document.createElement('div')); el.className = 'screen viewer';
   el.innerHTML = `
   <header class="top vtop"><button class="ib" data-v="back">${A.ic('back')}</button><div class="ttl">${esc(rec.name)}</div>
@@ -114,7 +114,7 @@ A.viewPdf = async (rec, blob, o = {}) => {
   };
   V.arrange = () => {
     V.vp.innerHTML = ''; let groups;
-    if (V.spread && V.N > 1) { groups = [[0]]; for (let i = 1; i < V.N; i += 2) groups.push(i + 1 < V.N ? [i, i + 1] : [i]); } else groups = V.els.map((_, i) => [i]);
+    if (V.spread && V.N > 1) { groups = []; let i0 = 0; if (V.cover) { groups.push([0]); i0 = 1; } for (let i = i0; i < V.N; i += 2) groups.push(i + 1 < V.N ? [i, i + 1] : [i]); } else groups = V.els.map((_, i) => [i]);
     V.groups = groups; const nodes = groups.map((g) => { if (!V.spread) return V.els[g[0]]; const s = document.createElement('div'); s.className = 'spread'; (V.rev && g.length > 1 ? [...g].reverse() : g).forEach((i) => s.appendChild(V.els[i])); return s; });
     if (V.rev && V.dir === 'h') nodes.reverse(); nodes.forEach((n) => V.vp.appendChild(n));
     V.sc.classList.toggle('h', V.dir === 'h'); V.sc.classList.toggle('snapx', V.snap && V.dir === 'h'); V.sc.classList.toggle('snapy', V.snap && V.dir === 'v');
@@ -256,6 +256,7 @@ A.viewPdf = async (rec, blob, o = {}) => {
       <label class="lbl">Page direction</label><div class="seg" id="vd"><button data-d="v" class="${V.dir === 'v' ? 'on' : ''}">Vertical</button><button data-d="h" class="${V.dir === 'h' ? 'on' : ''}">Horizontal</button></div>
       <button class="sw ${V.snap ? 'on' : ''}" data-s="snap"><span class="g">Page by page<small>Flip one page at a time</small></span><i></i></button>
       <button class="sw ${V.rev ? 'on' : ''}" data-s="rev"><span class="g">Reverse book direction<small>Right to left — for Arabic books and manga</small></span><i></i></button>
+      <button class="sw ${V.cover ? 'on' : ''}" data-s="cover"><span class="g">Cover on its own page<small>For 2 Pages: show page 1 alone, then pairs 2-3, 4-5…</small></span><i></i></button>
       <button class="sw ${A.set.keepOn ? 'on' : ''}" data-s="keepOn"><span class="g">Keep screen on</span><i></i></button>
       <label class="lbl">Rotate document · now ${V.rot}° (use instead of rotating your device)</label><div class="seg" id="vrot"><button data-rot="-90">${A.ic('rotL', 'style="vertical-align:middle"')} Left</button><button data-rot="90">${A.ic('rotR', 'style="vertical-align:middle"')} Right</button></div>`;
     await A.modal({
@@ -266,6 +267,7 @@ A.viewPdf = async (rec, blob, o = {}) => {
           const b = e.target.closest('button'); if (!b) return;
           if (b.dataset.r) { A.set.read = b.dataset.r; V.applyRead(); } else if (b.dataset.d) { V.dir = b.dataset.d; A.set.dir = V.dir; V.relayout(); }
           else if (b.dataset.s === 'snap') { V.snap = !V.snap; A.set.snap = V.snap; V.relayout(); } else if (b.dataset.s === 'rev') { V.rev = !V.rev; A.set.rev = V.rev; V.relayout(); }
+          else if (b.dataset.s === 'cover') { V.cover = !V.cover; A.set.cover = V.cover; V.relayout(); }
           else if (b.dataset.s === 'keepOn') { A.set.keepOn = !A.set.keepOn; V.wake(); } else if (b.dataset.rot) { V.setRot(+b.dataset.rot); return; }
           A.saveSet(); re();
         });

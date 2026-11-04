@@ -227,7 +227,7 @@ A.tools = {
   split: guard(async (pre) => {
     const jobs = [], opened = [];
     const el = document.createElement('div'); el.className = 'screen';
-    el.innerHTML = `<header class="top"><button class="ib" data-s="back">${A.ic('back')}</button><div class="ttl" style="font-size:18px">Split PDF</div><button class="ib" data-s="add" style="color:var(--pri)">${A.ic('plus')}</button></header><div class="sbody" style="padding-bottom:110px"></div><div style="position:absolute;left:0;right:0;bottom:0;padding:12px 14px calc(12px + env(safe-area-inset-bottom));background:var(--bg)"><button class="btn p" data-s="go" style="width:100%;padding:15px">Split</button></div>`;
+    el.innerHTML = `<header class="top"><button class="ib" data-s="back">${A.ic('back')}</button><div class="ttl" style="font-size:18px">Split PDF</div><button class="ib" data-s="addfile" title="Use another file">${A.ic('open')}</button><button class="ib" data-s="add" style="color:var(--pri)">${A.ic('plus')}</button></header><div class="sbody" style="padding-bottom:110px"></div><div style="position:absolute;left:0;right:0;bottom:0;padding:12px 14px calc(12px + env(safe-area-inset-bottom));background:var(--bg)"><button class="btn p" data-s="go" style="width:100%;padding:15px">Split</button></div>`;
     const body = $('.sbody', el), goBtn = $('[data-s=go]', el);
     const render = () => {
       body.innerHTML = jobs.length ? jobs.map((j, i) => `<div class="card" data-j="${j.id}"><div class="ch"><span class="badge b-pdf" style="width:38px;height:38px;border-radius:12px;margin-right:6px">PDF</span><span class="cn">${esc(j.name)}</span><button class="ib" data-s="rename">${A.ic('edit')}</button><button class="ib" data-s="pick">${A.ic('pages')}</button><button class="ib" data-s="remove" style="color:var(--danger)">${A.ic('trash')}</button></div><div class="cs">${j.sel.size} page(s) from ${esc(j.src.name)}</div></div>`).join('') : `<div class="empty">${A.ic('split')}<br>Tap <b>+</b> to choose a file and its pages</div>`;
@@ -247,14 +247,15 @@ A.tools = {
       A.push(pe, () => { io.disconnect(); if (!done) resolve(null); }); $$('canvas', pe).forEach((c) => io.observe(c)); upd();
     });
     const openSrc = async (f) => { let pdf; try { pdf = await A.loadPdfJs(f.blob); } catch (e) { A.toast(`${f.name}: cannot open (protected?)`); return null; } opened.push(pdf); return { name: f.name, blob: f.blob, pdf, n: pdf.numPages, bytes: new Uint8Array(await f.blob.arrayBuffer()), thumb: A.thumbCache(pdf, 110) }; };
-    const addFlow = async (file) => {
-      const f = file || (await A.pickPdfs(false, 'Choose a PDF to take pages from'))[0]; if (!f) return false; const src = await openSrc(f); if (!src) return false;
-      const sel = await pickPages(src, [], `Select pages — ${f.name}`); if (!sel) return false;
-      jobs.push({ id: uid().slice(0, 8), name: pdfName(baseOf(f.name) + '-part' + (jobs.length + 1)), src, sel }); render(); return true;
+    let cur = null; /* the file you are working on: "+" always returns to its pages */
+    const addFlow = async (pickNew, file) => {
+      if (pickNew || !cur) { const f = file || (await A.pickPdfs(false, 'Choose a PDF to take pages from'))[0]; if (!f) return false; const src = await openSrc(f); if (!src) return false; cur = src; }
+      const sel = await pickPages(cur, [], `Select pages — ${cur.name}`); if (!sel) return false;
+      jobs.push({ id: uid().slice(0, 8), name: pdfName(baseOf(cur.name) + '-part' + (jobs.length + 1)), src: cur, sel }); render(); return true;
     };
     el.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-s]'); if (!b) return; const a = b.dataset.s, card = e.target.closest('.card'), j = card && jobs.find((x) => x.id === card.dataset.j);
-      if (a === 'back') A.pop(); else if (a === 'add') await addFlow();
+      if (a === 'back') A.pop(); else if (a === 'add') await addFlow(false); else if (a === 'addfile') await addFlow(true);
       else if (a === 'rename' && j) { const n = await A.renameDlg(j.name, 'Output file name'); if (n) { j.name = n; render(); } }
       else if (a === 'pick' && j) { const sel = await pickPages(j.src, [...j.sel], `Select pages — ${j.src.name}`); if (sel) { j.sel = sel; render(); } }
       else if (a === 'remove' && j) { jobs.splice(jobs.indexOf(j), 1); render(); }
@@ -264,7 +265,7 @@ A.tools = {
       }
     });
     A.push(el, () => opened.forEach((p) => p.destroy())); render();
-    if (!(await addFlow(pre)) && !jobs.length) A.pop();
+    if (!(await addFlow(true, pre)) && !jobs.length) A.pop();
   }),
   /* ----- Compress ----- */
   compress: guard(async (pre) => {
