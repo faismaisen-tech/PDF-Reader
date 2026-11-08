@@ -2,7 +2,7 @@
 /* ===== PDF editor: annotations are stored in page coordinates (points) and merged into the file with pdf-lib on save ===== */
 
 const FONTS = { sans: 'Inter,"Segoe UI",Roboto,"Noto Sans Arabic",Tahoma,Arial,sans-serif', serif: '"Noto Naskh Arabic","Times New Roman",Georgia,serif', mono: '"Courier New",monospace' };
-const PAL = ['#f4d35e', '#f6a56e', '#ee8a8a', '#8cc9a5', '#8db6ea', '#b7a0e6', '#4a5568']; /* soft, calm colors */
+const PAL = ['#f4d35e', '#f6a56e', '#ee8a8a', '#8cc9a5', '#8db6ea', '#b7a0e6', '#4a5568', '#111111', '#ffffff']; /* soft, calm colors */
 const nid = () => uid().slice(0, 8);
 A.imgs = {}; A.imgData = {};
 
@@ -31,7 +31,7 @@ const smoothSample = (pts) => {
 A.edDraw = (V, i, ctx) => {
   const one = (a) => {
     if (a.t === 'cover') { ctx.fillStyle = a.c; a.rects.forEach((r) => ctx.fillRect(r[0], r[1], r[2], r[3])); }
-    else if (a.t === 'hl') { ctx.fillStyle = a.c; ctx.globalAlpha = 0.45; a.rects.forEach((r) => ctx.fillRect(r[0], r[1], r[2], r[3])); ctx.globalAlpha = 1; }
+    else if (a.t === 'hl') { ctx.fillStyle = a.c; ctx.globalAlpha = a.c === '#ffffff' ? 1 : 0.45; a.rects.forEach((r) => ctx.fillRect(r[0], r[1], r[2], r[3])); ctx.globalAlpha = 1; }
     else if (a.t === 'ln') { ctx.strokeStyle = a.c; ctx.lineWidth = a.w; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(a.x1, a.y1); ctx.lineTo(a.x2, a.y2); ctx.stroke(); }
     else if (a.t === 'ink') { ctx.strokeStyle = a.c; ctx.lineWidth = a.w; ctx.lineCap = ctx.lineJoin = 'round'; smoothPath(ctx, a.pts); if (a.pts.length === 1) ctx.lineTo(a.pts[0][0] + 0.1, a.pts[0][1]); ctx.stroke(); }
     else if (a.t === 'tx') drawText(ctx, a, a.x, a.y);
@@ -226,7 +226,7 @@ A.edBuild = async (V) => {
     const box = (r) => { const a = P(r[0], r[1]), b = P(r[0] + r[2], r[1] + r[3]); return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) }; };
     for (const a of list) {
       if (a.t === 'cover') a.rects.forEach((r) => page.drawRectangle({ ...box(r), color: rgb(1, 1, 1) }));
-      else if (a.t === 'hl') a.rects.forEach((r) => page.drawRectangle({ ...box(r), color: col(a.c), opacity: 0.5, blendMode: BlendMode.Multiply }));
+      else if (a.t === 'hl') a.rects.forEach((r) => page.drawRectangle({ ...box(r), color: col(a.c), opacity: a.c === '#ffffff' ? 1 : 0.5, blendMode: a.c === '#ffffff' ? BlendMode.Normal : BlendMode.Multiply }));
       else if (a.t === 'ln') page.drawLine({ start: P(a.x1, a.y1), end: P(a.x2, a.y2), thickness: a.w, color: col(a.c), lineCap: LineCapStyle.Round });
       else if (a.t === 'ink') { const pts = a.pts.length === 1 ? [a.pts[0], [a.pts[0][0] + 0.1, a.pts[0][1]]] : smoothSample(a.pts); for (let n = 1; n < pts.length; n++) page.drawLine({ start: P(...pts[n - 1]), end: P(...pts[n]), thickness: a.w, color: col(a.c), lineCap: LineCapStyle.Round }); }
       else if (a.t === 'tx' || a.t === 'img') {

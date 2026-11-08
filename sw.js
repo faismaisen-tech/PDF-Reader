@@ -1,6 +1,6 @@
 /* Service Worker: كل شيء يتخزّن عند أول تشغيل ثم يعمل التطبيق بدون إنترنت إطلاقاً.
    لا تعدّل القائمة يدوياً: شغّل  node build.js  بعد أي تغيير في الملفات. */
-const VERSION = 'v3f4e4d8fe6';
+const VERSION = 'v748efef4af';
 const CACHE = 'pdfreader-' + VERSION;
 const SHARE = 'pdfreader-share';
 const AI_HOSTS = ['generativelanguage.googleapis.com', 'api.anthropic.com', 'api.openai.com'];

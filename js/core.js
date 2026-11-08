@@ -2,7 +2,7 @@
 /* ===== Core utilities — no network access anywhere in this code ===== */
 const A = (window.A = {});
 /* App version: a single number. Increase it by 1 on every update round. */
-A.VERSION = 5;
+A.VERSION = 6;
 const $ = (s, e = document) => e.querySelector(s);
 const $$ = (s, e = document) => [...e.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

@@ -88,7 +88,7 @@ A.viewPdf = async (rec, blob, o = {}) => {
   <div class="zbar" hidden><span>${A.ic('zoom')}</span><input type="range" min="50" max="500" value="100"><b>100%</b><button class="ib" data-v="zclose">${A.ic('x')}</button></div>
   <div class="selbar" hidden><button data-v="selEdit">${A.ic('edit')}Edit</button><button data-v="selDel" style="color:#ff8a8a">${A.ic('trash')}Delete</button><button data-v="selDone">${A.ic('check')}Done</button></div>
   <footer class="vbot">
-    <button data-v="tools">${A.ic('tools')}Tools</button><button data-v="organize">${A.ic('pages')}Organize</button><button data-v="two">${A.ic('two')}2 Pages</button><button data-v="edit">${A.ic('edit')}Edit</button><button data-v="view">${A.ic('eye')}View</button></footer>
+    <button data-v="tools">${A.ic('tools')}Tools</button><button data-v="organize">${A.ic('pages')}Organize</button><button data-v="two">${A.ic('two')}Two Pages</button><button data-v="edit">${A.ic('edit')}Edit</button><button data-v="view">${A.ic('eye')}View</button></footer>
   <footer class="hud" hidden></footer>`;
   V.sc = $('.vscroll', el); V.vp = $('.vpages', el); V.sc.style.touchAction = 'pan-x pan-y';
 
@@ -117,14 +117,15 @@ A.viewPdf = async (rec, blob, o = {}) => {
     if (V.spread && V.N > 1) { groups = []; let i0 = 0; if (V.cover) { groups.push([0]); i0 = 1; } for (let i = i0; i < V.N; i += 2) groups.push(i + 1 < V.N ? [i, i + 1] : [i]); } else groups = V.els.map((_, i) => [i]);
     V.groups = groups; const nodes = groups.map((g) => { if (!V.spread) return V.els[g[0]]; const s = document.createElement('div'); s.className = 'spread'; (V.rev && g.length > 1 ? [...g].reverse() : g).forEach((i) => s.appendChild(V.els[i])); return s; });
     if (V.rev && V.dir === 'h') nodes.reverse(); nodes.forEach((n) => V.vp.appendChild(n));
-    V.sc.classList.toggle('h', V.dir === 'h'); V.sc.classList.toggle('snapx', V.snap && V.dir === 'h'); V.sc.classList.toggle('snapy', V.snap && V.dir === 'v');
+    V.sc.classList.toggle('h', V.dir === 'h'); V.applySnap();
   };
+  V.applySnap = () => { const fit = V.zoom <= 1.08; V.sc.classList.toggle('snapx', V.snap && V.dir === 'h' && fit); V.sc.classList.toggle('snapy', V.snap && V.dir === 'v' && fit); };
   V.relayout = (page) => { const p = page || V.cur; V.arrange(); V.layout(); V.go(p); setTimeout(V.vis, 40); };
   V.fit = () => { const cw = V.sc.clientWidth - 24, ch = V.sc.clientHeight - 150, s = V.sz[0], byW = cw / (V.spread ? s.w * 2 + 2 : s.w); return V.snap || V.dir === 'h' ? Math.min(byW, ch / s.h) : byW; };
   V.key = () => V.s.toFixed(3) + 'r' + V.rot;
   V.layout = () => {
     V.s = V.fit() * V.zoom;
-    V.els.forEach((pg, i) => { pg.style.width = V.sz[i].w * V.s + 'px'; pg.style.height = V.sz[i].h * V.s + 'px'; if (pg.dataset.r && pg.dataset.r !== V.key()) { pg.dataset.r = ''; $$('canvas.pc', pg).forEach((c) => c.remove()); V.tasks[i] && V.tasks[i].cancel(); } });
+    V.els.forEach((pg, i) => { pg.style.width = V.sz[i].w * V.s + 'px'; pg.style.height = V.sz[i].h * V.s + 'px'; if (pg.dataset.r && pg.dataset.r !== V.key()) { pg.dataset.r = ''; $$('canvas.pc, .textLayer', pg).forEach((c) => c.remove()); V.tasks[i] && V.tasks[i].cancel(); } });
   };
   V.render = async (i) => {
     const pg = V.els[i], key = V.key(); if (pg.dataset.r === key) return; pg.dataset.r = key; const pdf = V.pdf; let page;
@@ -133,14 +134,17 @@ A.viewPdf = async (rec, blob, o = {}) => {
     const vp = page.getViewport({ scale: k, rotation: (page.rotate + V.rot) % 360 }); const c = document.createElement('canvas'); c.className = 'pc'; c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
     V.tasks[i] && V.tasks[i].cancel(); const t = page.render({ canvasContext: c.getContext('2d'), viewport: vp }); V.tasks[i] = t;
     try { await t.promise; } catch (e) { if (pg.dataset.r === key) pg.dataset.r = ''; return; }
-    if (pdf !== V.pdf || pg.dataset.r !== key) return; const old = $('canvas.pc', pg); pg.insertBefore(c, pg.firstChild); old && old.remove(); V.drawOv(i);
+    if (pdf !== V.pdf || pg.dataset.r !== key) return; const old = $('canvas.pc', pg); pg.insertBefore(c, pg.firstChild); old && old.remove();
+    /* selectable / copyable text over the page */
+    try { const tc = await page.getTextContent(); if (pdf === V.pdf && pg.dataset.r === key) { $$('.textLayer', pg).forEach((x) => x.remove()); const tl = document.createElement('div'); tl.className = 'textLayer'; tl.style.setProperty('--scale-factor', V.s); pg.insertBefore(tl, $('canvas.ov', pg)); pdfjsLib.renderTextLayer({ textContentSource: tc, container: tl, viewport: page.getViewport({ scale: V.s, rotation: (page.rotate + V.rot) % 360 }), textDivs: [] }); } } catch (e) { /* page without text */ }
+    V.drawOv(i);
   };
   V.vis = () => {
     if (!V.els.length) return; const r = V.sc.getBoundingClientRect(), hz = V.dir === 'h', m = hz ? r.width : r.height * 1.2, cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2; let best = 0, bd = 1e12;
     V.els.forEach((pg, i) => {
       const b = pg.getBoundingClientRect(); const near = hz ? b.right > r.left - m && b.left < r.right + m : b.bottom > r.top - m && b.top < r.bottom + m;
       if (near) { V.render(i); const d = hz ? Math.abs((b.left + b.right) / 2 - cx) : Math.abs((b.top + b.bottom) / 2 - cy); if (d < bd) { bd = d; best = i; } }
-      else if (pg.dataset.r) { pg.dataset.r = ''; $$('canvas.pc', pg).forEach((c) => c.remove()); V.tasks[i] && V.tasks[i].cancel(); }
+      else if (pg.dataset.r) { pg.dataset.r = ''; $$('canvas.pc, .textLayer', pg).forEach((c) => c.remove()); V.tasks[i] && V.tasks[i].cancel(); }
     });
     V.cur = best + 1; $('.vbadge', el).textContent = `${V.cur} / ${V.N}`;
   };
@@ -151,12 +155,12 @@ A.viewPdf = async (rec, blob, o = {}) => {
   };
   V.switchTo = async (newRec, bl, page) => { rec = newRec; V.rec = newRec; $('.ttl', el).textContent = newRec.name; V.ann = {}; V.undo = []; V.redo = []; V.dirty = false; V.sel = null; V.rfHtml = null; await V.open(bl, page || V.cur); };
   V.setZoom = (z, cx = V.sc.clientWidth / 2, cy = V.sc.clientHeight / 2) => {
-    z = clamp(z, 0.5, 5); const r = z / V.zoom; if (Math.abs(r - 1) < 0.001) return; const sx = V.sc.scrollLeft + cx, sy = V.sc.scrollTop + cy; V.zoom = z; V.layout();
-    V.sc.scrollLeft = sx * r - cx; V.sc.scrollTop = sy * r - cy; V.vis(); const zb = $('.zbar', el); $('input', zb).value = Math.round(z * 100); $('b', zb).textContent = Math.round(z * 100) + '%';
+    z = clamp(z, 0.5, 5); if (Math.abs(z - 1) < 0.08) z = 1; const r = z / V.zoom; if (Math.abs(r - 1) < 0.001) return; const sx = V.sc.scrollLeft + cx, sy = V.sc.scrollTop + cy; V.zoom = z; V.layout();
+    V.sc.scrollLeft = sx * r - cx; V.sc.scrollTop = sy * r - cy; V.applySnap(); if (V.zoom === 1 && (V.snap || V.dir === 'h')) V.go(V.cur); V.vis(); const zb = $('.zbar', el); $('input', zb).value = Math.round(z * 100); $('b', zb).textContent = Math.round(z * 100) + '%';
   };
   V.setRot = async (d) => {
     if (V.dirty || Object.values(V.ann).some((l) => l.length)) return A.toast('Save or discard your edits before rotating');
-    V.rot = (V.rot + d + 360) % 360; await V.measure(); V.texts = {}; V.hits = []; V.els.forEach((p) => { p.dataset.r = ''; $$('canvas', p).forEach((c) => c.remove()); }); V.relayout(V.cur);
+    V.rot = (V.rot + d + 360) % 360; await V.measure(); V.texts = {}; V.hits = []; V.els.forEach((p) => { p.dataset.r = ''; $$('canvas, .textLayer', p).forEach((c) => c.remove()); }); V.relayout(V.cur);
   };
   V.applyRead = () => { el.classList.toggle('night', A.set.read === 'night'); $('.eyec', el).hidden = A.set.read !== 'eye'; };
   V.wake = async () => {
@@ -256,7 +260,7 @@ A.viewPdf = async (rec, blob, o = {}) => {
       <label class="lbl">Page direction</label><div class="seg" id="vd"><button data-d="v" class="${V.dir === 'v' ? 'on' : ''}">Vertical</button><button data-d="h" class="${V.dir === 'h' ? 'on' : ''}">Horizontal</button></div>
       <button class="sw ${V.snap ? 'on' : ''}" data-s="snap"><span class="g">Page by page<small>Flip one page at a time</small></span><i></i></button>
       <button class="sw ${V.rev ? 'on' : ''}" data-s="rev"><span class="g">Reverse book direction<small>Right to left — for Arabic books and manga</small></span><i></i></button>
-      <button class="sw ${V.cover ? 'on' : ''}" data-s="cover"><span class="g">Cover on its own page<small>For 2 Pages: show page 1 alone, then pairs 2-3, 4-5…</small></span><i></i></button>
+      <button class="sw ${V.cover ? 'on' : ''}" data-s="cover"><span class="g">Cover on its own page<small>For Two Pages: show page 1 alone, then pairs 2-3, 4-5…</small></span><i></i></button>
       <button class="sw ${A.set.keepOn ? 'on' : ''}" data-s="keepOn"><span class="g">Keep screen on</span><i></i></button>
       <label class="lbl">Rotate document · now ${V.rot}° (use instead of rotating your device)</label><div class="seg" id="vrot"><button data-rot="-90">${A.ic('rotL', 'style="vertical-align:middle"')} Left</button><button data-rot="90">${A.ic('rotR', 'style="vertical-align:middle"')} Right</button></div>`;
     await A.modal({
@@ -315,16 +319,16 @@ A.viewPdf = async (rec, blob, o = {}) => {
   V.sc.addEventListener('wheel', (e) => {
     if (e.ctrlKey) { e.preventDefault(); const r = V.sc.getBoundingClientRect(); return V.setZoom(V.zoom * (e.deltaY < 0 ? 1.1 : 0.9), e.clientX - r.left, e.clientY - r.top); }
     if (V.edit && V.tool !== 'hand') return; const d = e.deltaY || e.deltaX; if (!d) return;
-    if (V.snap && V.zoom <= 1.05) { e.preventDefault(); if (V.wlock) return; V.wlock = true; setTimeout(() => (V.wlock = false), 400); V.flip(d > 0 ? 1 : -1); return; }
-    if (V.dir === 'h') { e.preventDefault(); V.sc.scrollLeft += (V.rev ? -1 : 1) * (e.deltaY + e.deltaX); }
+    if (V.snap && V.zoom <= 1.08) { e.preventDefault(); if (V.wlock) return; V.wlock = true; setTimeout(() => (V.wlock = false), 400); V.flip(d > 0 ? 1 : -1); return; }
+    if (V.dir === 'h' && V.zoom <= 1.08) { e.preventDefault(); V.sc.scrollLeft += (V.rev ? -1 : 1) * (e.deltaY + e.deltaX); }
   }, { passive: false });
   /* mouse: drag the page like a finger (scroll, or flip pages in page-by-page mode) */
   let pan = null; V.sc.style.cursor = 'grab';
-  V.sc.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse' || e.button !== 0 || V.edit || e.target.closest('button')) return; pan = { x: e.clientX, y: e.clientY, sl: V.sc.scrollLeft, st: V.sc.scrollTop, moved: false }; });
+  V.sc.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse' || e.button !== 0 || V.edit || e.target.closest('button') || e.target.closest('.textLayer span')) return; pan = { x: e.clientX, y: e.clientY, sl: V.sc.scrollLeft, st: V.sc.scrollTop, moved: false }; });
   V.onPm = (e) => { if (!pan) return; const dx = e.clientX - pan.x, dy = e.clientY - pan.y; if (!pan.moved && Math.hypot(dx, dy) > 5) { pan.moved = true; V.sc.style.cursor = 'grabbing'; V.sc.style.scrollSnapType = 'none'; V.sc.style.userSelect = 'none'; } if (pan.moved) { V.sc.scrollLeft = pan.sl - dx; V.sc.scrollTop = pan.st - dy; } };
   V.onPu = (e) => {
     if (!pan) return; const p = pan, dx = e.clientX - p.x, dy = e.clientY - p.y; pan = null; if (!p.moved) return; V.sc.style.cursor = 'grab'; V.sc.style.scrollSnapType = ''; V.sc.style.userSelect = '';
-    if (V.snap && V.zoom <= 1.05) { if (V.dir === 'h' && Math.abs(dx) > 70) V.flip(dx < 0 ? (V.rev ? -1 : 1) : V.rev ? 1 : -1); else if (V.dir === 'v' && Math.abs(dy) > 70) V.flip(dy < 0 ? 1 : -1); else V.go(V.cur, true); }
+    if (V.snap && V.zoom <= 1.08) { if (V.dir === 'h' && Math.abs(dx) > 70) V.flip(dx < 0 ? (V.rev ? -1 : 1) : V.rev ? 1 : -1); else if (V.dir === 'v' && Math.abs(dy) > 70) V.flip(dy < 0 ? 1 : -1); else V.go(V.cur, true); }
   };
   V.onKey = (e) => {
     if (A.stack[A.stack.length - 1] !== undefined && A.stack[A.stack.length - 1].el !== el) return; if (/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '')) return; if (!(V.snap || V.dir === 'h')) return;

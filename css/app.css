@@ -45,7 +45,7 @@ svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stro
 .empty svg{width:54px;height:54px;opacity:.35}
 .fab{position:fixed;right:20px;bottom:calc(86px + env(safe-area-inset-bottom));width:58px;height:58px;border-radius:20px;background:var(--pri);color:#fff;box-shadow:0 8px 22px rgba(91,124,250,.45);display:flex;align-items:center;justify-content:center;z-index:5}
 .fab svg{width:27px;height:27px}
-.bnav{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;background:var(--card);border-radius:22px 22px 0 0;box-shadow:0 -4px 22px rgba(31,36,48,.08);padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
+.bnav{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;background:var(--card);border-radius:0;box-shadow:0 -1px 0 var(--bd);padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
 .bnav button{flex:1;padding:7px 0 5px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:var(--tx2);border-radius:14px}
 .bnav button.on{color:var(--pri);font-weight:700}
 .bnav button.on svg{background:var(--pri2);width:52px;height:30px;padding:4px 14px;border-radius:15px;box-sizing:border-box}
@@ -100,9 +100,9 @@ svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stro
 /* viewer */
 .viewer{background:#dfe2e9;animation:fi .2s}
 .viewer.night{background:#121212}
-.vtop{position:absolute;top:0;inset-inline:0;z-index:6;transition:transform .22s;background:var(--card);box-shadow:0 2px 14px rgba(31,36,48,.08);border-radius:0 0 22px 22px;padding-bottom:6px}
+.vtop{position:absolute;top:0;inset-inline:0;z-index:6;transition:transform .22s;background:var(--card);box-shadow:0 1px 0 var(--bd);border-radius:0;padding-bottom:6px}
 .vtop .ttl{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.vbot,.hud{position:absolute;bottom:0;inset-inline:0;z-index:6;background:var(--card);border-radius:22px 22px 0 0;box-shadow:0 -4px 22px rgba(31,36,48,.1);display:flex;padding:6px 6px calc(6px + env(safe-area-inset-bottom));transition:transform .22s}
+.vbot,.hud{position:absolute;bottom:0;inset-inline:0;z-index:6;background:var(--card);border-radius:0;box-shadow:0 -1px 0 var(--bd);display:flex;padding:6px 6px calc(6px + env(safe-area-inset-bottom));transition:transform .22s}
 .vbot button,.hud button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;padding:7px 0;color:var(--tx2);border-radius:14px}
 .vbot button.on,.hud button.on{color:var(--pri);background:var(--pri2)}
 .viewer.hide .vtop{transform:translateY(-115%)}.viewer.hide .vbot,.viewer.hide .hud{transform:translateY(115%)}
@@ -159,3 +159,13 @@ svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stro
 .editing .vscroll{cursor:default!important}
 .pt{cursor:grab}.pt:active{cursor:grabbing}
 .ck2{width:24px;height:24px;border-radius:50%;border:2px solid var(--tx2);display:flex;align-items:center;justify-content:center;flex:none;margin-left:6px;color:transparent}.ck2 svg{width:15px;height:15px;stroke-width:3}.ck2.on{background:var(--pri);border-color:var(--pri);color:#fff}.fi.sel{background:var(--pri2)}
+
+/* selectable text over the page (pdf.js text layer) */
+.textLayer{position:absolute;inset:0;overflow:hidden;opacity:.28;line-height:1;-webkit-text-size-adjust:none;text-size-adjust:none;forced-color-adjust:none;transform-origin:0 0;z-index:2}
+.textLayer :is(span,br){color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0% 0%;-webkit-user-select:text;user-select:text}
+.textLayer span.markedContent{top:0;height:0}
+.textLayer ::selection{background:#2f6bff}
+.textLayer .endOfContent{display:block;position:absolute;inset:100% 0 0;z-index:-1;cursor:default;-webkit-user-select:none;user-select:none}
+.textLayer .endOfContent.active{top:0}
+.pg canvas.ov{z-index:3}
+.editing .textLayer{pointer-events:none;-webkit-user-select:none;user-select:none}
